@@ -91,6 +91,8 @@ struct thread {
 	enum thread_status status;          /* Thread state. */
 	char name[16];                      /* Name (for debugging purposes). */
 	int priority;                       /* Priority. */
+	int64_t 일어나;  // 스레드가 언제 일어나야할지를 저장하는 필드 추가함
+
 
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */

@@ -224,6 +224,22 @@ thread_block (void) {
 	schedule ();
 }
 
+////////// 과제 구현 ////////////
+void
+thread_sleep (int64_t ticks) {
+  enum intr_level old_level = intr_disable(); 			// 인터럽트 비활성화
+  struct thread *curr = thread_current(); 				// 현재 스레드 구조체 포인터를 curr에 저장
+  if (curr != idle_thread) {					        // 현재 스레드가 idle_thread가 아닐 때만 슬립 리스트에 추가
+    curr->wakeup_tick = ticks;                         // (1) 깨어날 시간 설정
+    list_push_back(&sleep_list, &curr->elem);          // (2) 슬립 리스트에 추가
+    update_next_tick_to_awake(ticks);                  // (3) 전역 최소 tick 갱신
+    thread_block();                                    // (4) 스레드 상태를 BLOCKED로 만들고 스케줄링
+  }
+
+  intr_set_level(old_level); // 인터럽트 복원
+}
+
+
 /* Transitions a blocked thread T to the ready-to-run state.
    This is an error if T is not blocked.  (Use thread_yield() to
    make the running thread ready.)
