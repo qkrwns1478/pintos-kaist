@@ -92,9 +92,14 @@ void
 timer_sleep (int64_t ticks) {
 	int64_t start = timer_ticks ();
 
-	ASSERT (intr_get_level () == INTR_ON);
-	while (timer_elapsed (start) < ticks)
-		thread_yield ();
+	ASSERT (intr_get_level () == INTR_ON); // Avoid interrupt
+	/* Busy waiting: must be reimplemented!! */
+	// while (timer_elapsed (start) < ticks)
+	// 	thread_yield ();
+
+	/* Call the function that inserts thread to the sleep queue */
+	if (timer_elapsed (start) < ticks)
+		thread_sleep(start + ticks); // Current time + Wait time → Time to wake up
 }
 
 /* Suspends execution for approximately MS milliseconds. */
@@ -125,7 +130,10 @@ timer_print_stats (void) {
 static void
 timer_interrupt (struct intr_frame *args UNUSED) {
 	ticks++;
-	thread_tick ();
+	thread_tick (); // update the cpu usage for running process
+
+	/* At every tick, check whether some thread must wake up from sleep queue and call wake up function. */
+	thread_wakeup(ticks);
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
