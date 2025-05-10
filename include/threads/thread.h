@@ -95,6 +95,9 @@ struct thread {
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
 
+	/* New field for local tick */
+	int64_t wakeup_tick;				/* tick till wake up */
+
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4;                     /* Page map level 4 */
@@ -108,6 +111,9 @@ struct thread {
 	struct intr_frame tf;               /* Information for switching */
 	unsigned magic;                     /* Detects stack overflow. */
 };
+
+/* Save the time to scan the sleep list */
+// int64_t tick;
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
@@ -142,5 +148,12 @@ int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 
 void do_iret (struct intr_frame *tf);
+
+void thread_sleep(int64_t ticks);
+void thread_wakeup(int64_t ticks);
+// void put_min_tick(int64_t ticks);
+// int64_t get_min_tick(int64_t ticks);
+bool cmp_tick(struct list_elem *a, struct list_elem *b, void *aux UNUSED);
+bool cmp_priority(struct list_elem *a, struct list_elem *b, void *aux UNUSED);
 
 #endif /* threads/thread.h */
