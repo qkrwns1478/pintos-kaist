@@ -91,20 +91,19 @@ struct thread {
 	enum thread_status status;          /* Thread state. */
 	char name[16];                      /* Name (for debugging purposes). */
 	int priority;                       /* Priority. */
-	int64_t 일어나;  // 스레드가 언제 일어나야할지를 저장하는 필드 추가함
+	struct list_elem elem; // ready_list, sleep_list에 엘레멘트를 언제 담아야 할지 판별
+	int64_t wakeup_tick;  // 스레드가 언제 일어나야할지를 저장하는 필드 추가함
 
 
-	/* Shared between thread.c and synch.c. */
-	struct list_elem elem;              /* List element. */
 
-#ifdef USERPROG
+#ifdef USERPROG //  USERPROG 메크로가 정의되어 있을 경우에만 사용될 것 | pml4(Page Map Level 4, 사용자 주소 공간)가 사용되므로,
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4;                     /* Page map level 4 */
 #endif
-#ifdef VM
+#ifdef VM // VM 메크로가 정의되어 있을 경우에만 사용될 것 | 가상 메모리 사용
 	/* Table for whole virtual memory owned by thread. */
-	struct supplemental_page_table spt;
-#endif
+	struct supplemental_page_table spt; // 가상 메모리 페이지 테이블
+#endif // 메크로 사용 종료
 
 	/* Owned by thread.c. */
 	struct intr_frame tf;               /* Information for switching */
@@ -114,35 +113,43 @@ struct thread {
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
-extern bool thread_mlfqs;
+extern bool thread_mlfqs; // 다중 레벨 피드백 큐 스케줄러 사용 여부
+extern int64_t next_tick_to_awake; // 다음에 깨워야 할 스레드의 tick
 
-void thread_init (void);
-void thread_start (void);
+void thread_init (void); // 스레드 초기화
+void thread_start (void); // 스레드 시작
 
-void thread_tick (void);
-void thread_print_stats (void);
+int64_t reset_tick(int64_t tick); // tick을 초기화 하고 반환
+void thread_sleep(int64_t ticks); // ticks 만큼 잠자기
+void thread_awake(int64_t ticks); // ticks 만큼 잠자고 있는 스레드 깨우기
 
-typedef void thread_func (void *aux);
-tid_t thread_create (const char *name, int priority, thread_func *, void *);
 
-void thread_block (void);
-void thread_unblock (struct thread *);
+void thread_tick (void); // 타이머 인터럽트 발생 시 호출되는 함수로, 통계 갱신 및 time slice 체크
+void thread_print_stats (void); // 현재까지 누적된 스레드 관련 통계를 출력
+typedef void thread_func (void *aux); // 커널 스레드에서 실행할 함수의 타입 정의
 
-struct thread *thread_current (void);
-tid_t thread_tid (void);
-const char *thread_name (void);
+tid_t thread_create (const char *name, int priority, thread_func *, void *); 
+// 새로운 커널 스레드를 생성하고 ready_list에 추가, thread_func 실행
 
-void thread_exit (void) NO_RETURN;
-void thread_yield (void);
+void thread_block (void); // 현재 스레드를 BLOCK 상태로 전환하고 스케줄링
+void thread_unblock (struct thread *); // BLOCK 상태의 스레드를 READY 상태로 전환하여 ready_list에 삽입
 
-int thread_get_priority (void);
-void thread_set_priority (int);
+struct thread *thread_current (void); // 현재 CPU에서 실행 중인 스레드 구조체를 반환
+tid_t thread_tid (void); // 현재 실행 중인 스레드의 tid 반환
+const char *thread_name (void); // 현재 실행 중인 스레드의 이름 반환
+void thread_exit (void) NO_RETURN; // 현재 스레드를 종료하고 다른 스레드로 전환, 절대 복귀하지 않음
+void thread_yield (void); // 현재 스레드를 READY 상태로 만들고 CPU를 양보 (스케줄러 호출)
 
-int thread_get_nice (void);
-void thread_set_nice (int);
-int thread_get_recent_cpu (void);
-int thread_get_load_avg (void);
+int thread_get_priority (void); // 현재 스레드의 우선순위(priority)를 반환
+void thread_set_priority (int); // 현재 스레드의 우선순위를 지정한 값으로 설정
 
-void do_iret (struct intr_frame *tf);
+bool priority_greater(const struct list_elem *, const struct list_elem *, void *); 
+// 우선순위를 비교하는 함수로, list_insert_ordered에서 사용됨
 
-#endif /* threads/thread.h */
+int thread_get_nice (void); // 현재 스레드의 nice 값 반환 (MLFQS용)
+void thread_set_nice (int); // 현재 스레드의 nice 값을 설정 (MLFQS용)
+
+int thread_get_recent_cpu (void); // 현재 스레드의 recent_cpu 값 반환 (MLFQS용)
+int thread_get_load_avg (void); // 시스템의 load_avg 값을 반환 (MLFQS용)
+
+void do_iret (struct intr_frame *tf); // 스레드의 레지스터 상태를 복구하여 사용자 프로그램으로 복귀

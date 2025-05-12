@@ -7,15 +7,25 @@
 #include "threads/io.h"
 #include "threads/synch.h"
 #include "threads/thread.h"
+#include <stdint.h>
+
+int64_t next_tick_to_awake = INT64_MAX; // 슬립 리스트 중 최소 일어날 tick을 저장
 
 /* See [8254] for hardware details of the 8254 timer chip. */
 
-#if TIMER_FREQ < 19
+#if TIMER_FREQ < 19 // TIMER_FREQ는 19보다 커야 함
 #error 8254 timer requires TIMER_FREQ >= 19
 #endif
 #if TIMER_FREQ > 1000
 #error TIMER_FREQ <= 1000 recommended
 #endif
+
+/* thread.c에서 정의된 sleep_list: 잠자는 스레드 목록 */
+extern struct list sleep_list;
+
+/* 슬립 리스트에서 깨어날 스레드를 깨우는 함수 */
+void thread_awake(int64_t ticks);
+
 
 /* Number of timer ticks since OS booted. */
 static int64_t ticks;
@@ -90,11 +100,12 @@ timer_elapsed (int64_t then) {
 /* Suspends execution for approximately TICKS timer ticks. */
 void
 timer_sleep (int64_t ticks) {
-	int64_t start = timer_ticks ();
+  if (ticks <= 0) return;
 
-	ASSERT (intr_get_level () == INTR_ON);
-	while (timer_elapsed (start) < ticks)
-		thread_yield ();
+  int64_t start = timer_ticks ();
+  enum intr_level old_level = intr_disable ();   // 인터럽트 비활성화
+  thread_sleep (ticks + start);                  // (1) 깨어날 tick 설정 및 슬립 리스트에 추가
+  intr_set_level (old_level);                    // 인터럽트 상태 복구
 }
 
 /* Suspends execution for approximately MS milliseconds. */
@@ -120,41 +131,38 @@ void
 timer_print_stats (void) {
 	printf ("Timer: %"PRId64" ticks\n", timer_ticks ());
 }
-
+
 /* Timer interrupt handler. */
-static void
-timer_interrupt (struct intr_frame *args UNUSED) {
+static void 
+timer_interrupt(struct intr_frame *args UNUSED) {
 	ticks++;
-	thread_tick ();
-}
+	printf("[timer_interrupt] tick = %lld\n", ticks);
+  
+	if (loops_per_tick > 0)
+	  thread_awake(ticks);
+  
+	thread_tick();
+  }
+  
 
 /* Returns true if LOOPS iterations waits for more than one timer
    tick, otherwise false. */
-static bool
-too_many_loops (unsigned loops) {
-	/* Wait for a timer tick. */
+   static bool too_many_loops (unsigned loops) {
 	int64_t start = ticks;
 	while (ticks == start)
-		barrier ();
+		barrier();
 
-	/* Run LOOPS loops. */
 	start = ticks;
-	busy_wait (loops);
+	busy_wait(loops);
 
-	/* If the tick count changed, we iterated too long. */
-	barrier ();
-	return start != ticks;
+	barrier();
+	return start != ticks;  
 }
 
-/* Iterates through a simple loop LOOPS times, for implementing
-   brief delays.
 
-   Marked NO_INLINE because code alignment can significantly
-   affect timings, so that if this function was inlined
-   differently in different places the results would be difficult
-   to predict. */
-static void NO_INLINE
-busy_wait (int64_t loops) {
+/* Iterates through a simple loop LOOPS times, for implementing
+   brief delays. */
+static void NO_INLINE busy_wait (int64_t loops) {
 	while (loops-- > 0)
 		barrier ();
 }
@@ -181,6 +189,6 @@ real_time_sleep (int64_t num, int32_t denom) {
 		   sub-tick timing.  We scale the numerator and denominator
 		   down by 1000 to avoid the possibility of overflow. */
 		ASSERT (denom % 1000 == 0);
-		busy_wait (loops_per_tick * num / 1000 * TIMER_FREQ / (denom / 1000));
+		busy_wait (loops_per_tick * num / 1000);
 	}
 }

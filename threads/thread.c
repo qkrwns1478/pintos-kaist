@@ -1,4 +1,5 @@
 #include "threads/thread.h"
+#include <stdint.h>
 #include <debug.h>
 #include <stddef.h>
 #include <random.h>
@@ -11,6 +12,8 @@
 #include "threads/synch.h"
 #include "threads/vaddr.h"
 #include "intrinsic.h"
+#include "threads/thread.h"
+#include "devices/timer.h"
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -27,6 +30,37 @@
 /* List of processes in THREAD_READY state, that is, processes
    that are ready to run but not actually running. */
 static struct list ready_list;
+
+/* 잠 재워질 스레드 리스트 */
+static struct list sleep_list;
+
+
+/* tick을 초기화 하고 반환  | 가장 빨리 찾아올 tick ( 스레드가 일어나야 할 시간 )*/
+int64_t reset_tick(int64_t tick) {
+	if (tick < next_tick_to_awake)
+		next_tick_to_awake = tick;
+	return next_tick_to_awake;
+}
+
+/* tick 시간 비교 */
+bool tick_wake_faster(const struct list_elem *a, const struct list_elem *b, void *aux); 
+// tick_wake_faster 함수 선언: 슬립 리스트 정렬 시, 더 일찍 깨야 하는 스레드를 앞으로 배치하기 위한 비교 함수
+
+/* priority 비교 */
+bool priority_greater(const struct list_elem *a,       // ready_list 정렬 시 사용되는 첫 번째 요소 (list_elem 포인터)
+                      const struct list_elem *b,       // ready_list 정렬 시 사용되는 두 번째 요소 (list_elem 포인터)
+                      void *aux UNUSED) {              // 컴파일러 경고 무시
+
+/* list_entry 매크로를 통해 list_elem 포인터를 실제 thread 포인터로 변환 */
+const struct thread *t_a = list_entry(a, struct thread, elem); // 첫 번째 요소가 속한 thread 구조체 포인터 획득
+const struct thread *t_b = list_entry(b, struct thread, elem); // 두 번째 요소가 속한 thread 구조체 포인터 획득
+
+return t_a->priority > t_b->priority; // 우선순위가 높은 스레드가 앞으로 오도록 true/false 반환
+}
+
+/* 스레드 unlock */
+void thread_unlock(struct thread *t); // 스레드의 lock을 해제하는 함수
+
 
 /* Idle thread. */
 static struct thread *idle_thread;
@@ -48,6 +82,7 @@ static long long user_ticks;    /* # of timer ticks in user programs. */
 /* Scheduling. */
 #define TIME_SLICE 4            /* # of timer ticks to give each thread. */
 static unsigned thread_ticks;   /* # of timer ticks since last yield. */
+
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
@@ -109,6 +144,7 @@ thread_init (void) {
 	lock_init (&tid_lock);
 	list_init (&ready_list);
 	list_init (&destruction_req);
+	list_init(&sleep_list);
 
 	/* Set up a thread structure for the running thread. */
 	initial_thread = running_thread ();
@@ -211,7 +247,7 @@ thread_create (const char *name, int priority,
 }
 
 /* Puts the current thread to sleep.  It will not be scheduled
-   again until awoken by thread_unblock().
+   again until awoken by thread_unlock().
 
    This function must be called with interrupts turned off.  It
    is usually a better idea to use one of the synchronization
@@ -224,19 +260,65 @@ thread_block (void) {
 	schedule ();
 }
 
-////////// 과제 구현 ////////////
-void
-thread_sleep (int64_t ticks) {
-  enum intr_level old_level = intr_disable(); 			// 인터럽트 비활성화
-  struct thread *curr = thread_current(); 				// 현재 스레드 구조체 포인터를 curr에 저장
-  if (curr != idle_thread) {					        // 현재 스레드가 idle_thread가 아닐 때만 슬립 리스트에 추가
-    curr->wakeup_tick = ticks;                         // (1) 깨어날 시간 설정
-    list_push_back(&sleep_list, &curr->elem);          // (2) 슬립 리스트에 추가
-    update_next_tick_to_awake(ticks);                  // (3) 전역 최소 tick 갱신
-    thread_block();                                    // (4) 스레드 상태를 BLOCKED로 만들고 스케줄링
-  }
+#define NO_INLINE __attribute__ ((noinline))
 
-  intr_set_level(old_level); // 인터럽트 복원
+// 현재 스레드를 지정된 tick까지 잠들게 하는 함수
+void thread_sleep(int64_t wakeup_tick) {
+	enum intr_level old_level = intr_disable();  // (1) 인터럽트 비활성화 (리스트 조작 중 예기치 않은 동시 접근 방지)
+	struct thread *curr = thread_current();      // (2) 현재 실행 중인 스레드 가져오기
+
+	if (curr != idle_thread) {  // (3) idle 스레드는 sleep할 필요 없음
+		curr->wakeup_tick = wakeup_tick;  // (4) 깨어나야 할 tick 저장
+		list_insert_ordered(&sleep_list, &curr->elem, tick_wake_faster, NULL);  // (5) sleep_list에 깨어날 시간 기준으로 정렬 삽입
+		thread_block();  // (6) 현재 스레드를 BLOCK 상태로 전환하여 스케줄러로부터 제외
+	}
+
+	intr_set_level(old_level);  // (7) 인터럽트 상태 복구
+}
+
+// BLOCK 상태의 스레드를 READY 상태로 전환하여 ready_list에 삽입하는 함수
+void thread_unblock(struct thread *t) {
+	enum intr_level old_level;
+
+	ASSERT(is_thread(t));                   // (1) 유효한 스레드인지 확인
+	old_level = intr_disable();             // (2) ready_list 접근 전에 인터럽트 비활성화
+	ASSERT(t->status == THREAD_BLOCKED);    // (3) 반드시 BLOCKED 상태여야 함
+
+	list_insert_ordered(&ready_list, &t->elem, priority_greater, NULL);  // (4) 우선순위 기준으로 ready_list에 정렬 삽입
+	t->status = THREAD_READY;               // (5) 스레드 상태를 READY로 설정
+
+	intr_set_level(old_level);              // (6) 인터럽트 상태 복구
+}
+
+// 현재 tick 기준으로 깨어날 시간(wakeup_tick)이 지난 스레드들을 깨우는 함수
+void thread_awake(int64_t current_tick) {
+	while (!list_empty(&sleep_list)) {  // (1) sleep_list가 비어있지 않은 동안 반복
+		struct list_elem *e = list_front(&sleep_list);              // (2) 리스트 앞의 요소 확인
+		struct thread *t = list_entry(e, struct thread, elem);      // (3) list_elem을 thread 구조체로 변환
+
+		if (t->wakeup_tick <= current_tick) {  // (4) 깨어나야 할 시간 도달한 경우
+			list_pop_front(&sleep_list);       // (5) 리스트에서 제거
+			thread_unblock(t);                 // (6) READY 상태로 전환
+		} else {
+			break;  // (7) sleep_list는 정렬되어 있으므로, 이후 스레드는 모두 나중에 깨어남 → 루프 종료
+		}
+	}
+
+	// (8) 만약 더 높은 우선순위의 스레드가 ready_list에 있다면 현재 스레드는 양보 예약
+	if (!list_empty(&ready_list)) {
+		struct thread *highest = list_entry(list_front(&ready_list), struct thread, elem);  // (9) 가장 우선순위 높은 스레드 확인
+		if (thread_current()->priority < highest->priority) {  // (10) 현재보다 높다면
+			intr_yield_on_return();  // (11) 다음 시점에 CPU 양보
+		}
+	}
+}
+
+// sleep_list에 삽입 시 사용할 비교 함수
+// 깨어날 시간이 더 빠른 스레드가 앞에 오도록 정렬 기준 제공
+bool tick_wake_faster(const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED) {
+	const struct thread *a = list_entry(a_, struct thread, elem);  // (1) 첫 번째 요소를 thread로 변환 | 테스트 케이스에서 사용할 첫번째 스레드 
+	const struct thread *b = list_entry(b_, struct thread, elem);  // (2) 두 번째 요소를 thread로 변환 | 테스트 케이스에서 사용할 두번째 스레드
+	return a->wakeup_tick < b->wakeup_tick;  // (3) 깨어날 시간이 빠른 순으로 정렬 (오름차순)
 }
 
 
@@ -246,19 +328,19 @@ thread_sleep (int64_t ticks) {
 
    This function does not preempt the running thread.  This can
    be important: if the caller had disabled interrupts itself,
-   it may expect that it can atomically unblock a thread and
+   it may expect that it can atomically unlock a thread and
    update other data. */
 void
-thread_unblock (struct thread *t) {
-	enum intr_level old_level;
+thread_unlock (struct thread *t) { // 스레드를 잠금을 해제하는 함수
+	enum intr_level old_level; // 인터럽트 레벨을 저장하는 변수
 
-	ASSERT (is_thread (t));
+	ASSERT (is_thread (t)); // t가 유효한 스레드인지 확인
 
 	old_level = intr_disable ();
-	ASSERT (t->status == THREAD_BLOCKED);
-	list_push_back (&ready_list, &t->elem);
-	t->status = THREAD_READY;
-	intr_set_level (old_level);
+	ASSERT (t->status == THREAD_BLOCKED); // t가 BLOCKED 상태인지 확인
+	list_push_back (&sleep_list, &t->elem); // sleep_list에 t를 추가
+	t->status = THREAD_READY; // t의 상태를 THREAD_READY로 변경
+	intr_set_level (old_level); // 이전 인터럽트 레벨로 복원
 }
 
 /* Returns the name of the running thread. */
