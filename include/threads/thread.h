@@ -91,9 +91,10 @@ struct thread {
 	enum thread_status status;          /* Thread state. */
 	char name[16];                      /* Name (for debugging purposes). */
 	int priority;                       /* Priority. */
+	struct list_elem elem; // ready_list, sleep_list에 엘레멘트를 언제 담아야 할지 판별
+	int64_t wakeup_tick;  // 스레드가 언제 일어나야할지를 저장하는 필드 추가함
 
-	/* Shared between thread.c and synch.c. */
-	struct list_elem elem;              /* List element. */
+
 
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
@@ -113,9 +114,15 @@ struct thread {
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
 extern bool thread_mlfqs;
+extern int64_t next_tick_to_awake;
 
 void thread_init (void);
 void thread_start (void);
+
+int64_t reset_tick(int64_t tick);
+void thread_sleep(int64_t ticks);
+void thread_awake(int64_t ticks);
+
 
 void thread_tick (void);
 void thread_print_stats (void);
@@ -135,6 +142,7 @@ void thread_yield (void);
 
 int thread_get_priority (void);
 void thread_set_priority (int);
+bool priority_greater(const struct list_elem *, const struct list_elem *, void *);
 
 int thread_get_nice (void);
 void thread_set_nice (int);

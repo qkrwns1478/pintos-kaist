@@ -1,4 +1,5 @@
 #include "threads/thread.h"
+#include <stdint.h>
 #include <debug.h>
 #include <stddef.h>
 #include <random.h>
@@ -11,6 +12,8 @@
 #include "threads/synch.h"
 #include "threads/vaddr.h"
 #include "intrinsic.h"
+#include "threads/thread.h"
+#include "devices/timer.h"
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -27,6 +30,32 @@
 /* List of processes in THREAD_READY state, that is, processes
    that are ready to run but not actually running. */
 static struct list ready_list;
+
+/* 잠 재워질 스레드 리스트 */
+static struct list sleep_list;
+
+
+/* tick을 초기화 하고 반환  | 가장 빨리 찾아올 tick ( 스레드가 일어나야 할 시간 )*/
+int64_t reset_tick(int64_t tick) {
+	if (tick < next_tick_to_awake)
+		next_tick_to_awake = tick;
+	return next_tick_to_awake;
+}
+
+/* tick 시간 비교 */
+bool tick_wake_faster(const struct list_elem *a, const struct list_elem *b, void *aux);
+/* priority 비교 */
+bool priority_greater(const struct list_elem *a,
+	const struct list_elem *b,
+	void *aux UNUSED) {
+const struct thread *t_a = list_entry(a, struct thread, elem);
+const struct thread *t_b = list_entry(b, struct thread, elem);
+return t_a->priority > t_b->priority;
+}
+
+/* 스레드 unlock */
+void thread_unlock(struct thread *t);
+
 
 /* Idle thread. */
 static struct thread *idle_thread;
@@ -48,6 +77,7 @@ static long long user_ticks;    /* # of timer ticks in user programs. */
 /* Scheduling. */
 #define TIME_SLICE 4            /* # of timer ticks to give each thread. */
 static unsigned thread_ticks;   /* # of timer ticks since last yield. */
+
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
@@ -109,6 +139,7 @@ thread_init (void) {
 	lock_init (&tid_lock);
 	list_init (&ready_list);
 	list_init (&destruction_req);
+	list_init(&sleep_list);
 
 	/* Set up a thread structure for the running thread. */
 	initial_thread = running_thread ();
@@ -211,7 +242,7 @@ thread_create (const char *name, int priority,
 }
 
 /* Puts the current thread to sleep.  It will not be scheduled
-   again until awoken by thread_unblock().
+   again until awoken by thread_unlock().
 
    This function must be called with interrupts turned off.  It
    is usually a better idea to use one of the synchronization
@@ -224,23 +255,86 @@ thread_block (void) {
 	schedule ();
 }
 
+#define NO_INLINE __attribute__ ((noinline))
+
+////////// 과제  ////////////
+void 
+thread_sleep(int64_t wakeup_tick) {
+	enum intr_level old_level = intr_disable();
+	struct thread *curr = thread_current();
+  
+	if (curr != idle_thread) {
+	  curr->wakeup_tick = wakeup_tick;  
+	  list_insert_ordered(&sleep_list, &curr->elem, tick_wake_faster, NULL);
+	  thread_block();
+	}
+  
+	intr_set_level(old_level);
+  }
+  
+  
+void thread_unblock(struct thread *t) {
+	enum intr_level old_level;
+  
+	ASSERT(is_thread(t));
+	old_level = intr_disable();
+	ASSERT(t->status == THREAD_BLOCKED);
+  
+	list_insert_ordered(&ready_list, &t->elem,  priority_greater, NULL);
+	t->status = THREAD_READY;
+  
+	intr_set_level(old_level);
+  }
+  
+  void thread_awake(int64_t current_tick) {
+	while (!list_empty(&sleep_list)) {
+		struct list_elem *e = list_front(&sleep_list);
+		struct thread *t = list_entry(e, struct thread, elem);
+
+		if (t->wakeup_tick <= current_tick) {
+			list_pop_front(&sleep_list);
+			thread_unblock(t);
+		} else {
+			break;
+		}
+	}
+
+	/* ✅ 우선순위 스레드 깨운 후 현재 스레드보다 높다면 양보 예약 */
+	if (!list_empty(&ready_list)) {
+		struct thread *highest = list_entry(list_front(&ready_list), struct thread, elem);
+		if (thread_current()->priority < highest->priority) {
+			intr_yield_on_return();
+		}
+	}
+}
+
+  
+/*슬립 리스트에 삽입할 때 사용할 비교 함수*/
+// 더 일찍 깨어나야 하는 스레드를 앞에 오도록 정렬한다
+bool tick_wake_faster(const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED) {
+	const struct thread *a = list_entry(a_, struct thread, elem);
+	const struct thread *b = list_entry(b_, struct thread, elem);
+	return a->wakeup_tick < b->wakeup_tick;
+}
+
+
 /* Transitions a blocked thread T to the ready-to-run state.
    This is an error if T is not blocked.  (Use thread_yield() to
    make the running thread ready.)
 
    This function does not preempt the running thread.  This can
    be important: if the caller had disabled interrupts itself,
-   it may expect that it can atomically unblock a thread and
+   it may expect that it can atomically unlock a thread and
    update other data. */
 void
-thread_unblock (struct thread *t) {
+thread_unlock (struct thread *t) {
 	enum intr_level old_level;
 
 	ASSERT (is_thread (t));
 
 	old_level = intr_disable ();
 	ASSERT (t->status == THREAD_BLOCKED);
-	list_push_back (&ready_list, &t->elem);
+	list_push_back (&sleep_list, &t->elem);
 	t->status = THREAD_READY;
 	intr_set_level (old_level);
 }
