@@ -153,3 +153,5 @@ int thread_get_recent_cpu (void); // 현재 스레드의 recent_cpu 값 반환 (
 int thread_get_load_avg (void); // 시스템의 load_avg 값을 반환 (MLFQS용)
 
 void do_iret (struct intr_frame *tf); // 스레드의 레지스터 상태를 복구하여 사용자 프로그램으로 복귀
+
+#endif
