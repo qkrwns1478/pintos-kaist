@@ -122,9 +122,6 @@ struct thread {
 	unsigned magic;                     /* Detects stack overflow. */
 };
 
-/* Save the time to scan the sleep list */
-// int64_t tick;
-
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
@@ -160,14 +157,13 @@ int thread_get_load_avg (void);
 
 void do_iret (struct intr_frame *tf);
 
-void thread_sleep(int64_t ticks);
-void thread_wakeup(int64_t ticks);
-// void put_min_tick(int64_t ticks);
-// int64_t get_min_tick(int64_t ticks);
-bool cmp_tick(struct list_elem *a, struct list_elem *b, void *aux UNUSED);
-bool cmp_priority(struct list_elem *a, struct list_elem *b, void *aux UNUSED);
-bool cmp_priority_d(struct list_elem *a, struct list_elem *b, void *aux UNUSED);
+void thread_sleep (int64_t ticks);
+void thread_wakeup (int64_t ticks);
+bool cmp_tick (struct list_elem *a, struct list_elem *b, void *aux UNUSED);
+bool cmp_priority (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED);
+bool cmp_priority_donate (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED);
 int get_highest_priority (void);
 void do_preemption (void);
+void thread_refresh_priority (void);
 
 #endif /* threads/thread.h */
