@@ -188,6 +188,18 @@ lock_acquire (struct lock *lock) {
 	ASSERT (!intr_context ());
 	ASSERT (!lock_held_by_current_thread (lock));
 
+	struct thread *cur = thread_current();
+
+	if (lock->holder && !thread_mlfqs) {
+		cur->wait_on_lock = lock;  // 내가 이 락을 기다리고 있음
+		donate_priority();   // priority donation 수행
+	}
+
+	sema_down(&lock->semaphore); // 세마포어 기다림
+	cur->wait_on_lock = NULL;  // 락을 얻었으므로 대기 해제
+	lock->holder = cur;   // 락의 소유자 등록
+	list_push_back(&cur->acquired_locks, &lock->elem); // 보유 락 목록에 추가
+
 	sema_down (&lock->semaphore);
 	lock->holder = thread_current ();
 }
@@ -221,6 +233,9 @@ void
 lock_release (struct lock *lock) {
 	ASSERT (lock != NULL);
 	ASSERT (lock_held_by_current_thread (lock));
+
+	remove_with_lock(lock); // 1. 해당 락 대기 donation 제거
+	refresh_priority();     // 2. 우선순위 복구
 
 	lock->holder = NULL;
 	sema_up (&lock->semaphore);

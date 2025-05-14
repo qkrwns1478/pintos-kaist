@@ -85,15 +85,20 @@ typedef int tid_t;
  * only because they are mutually exclusive: only a thread in the
  * ready state is on the run queue, whereas only a thread in the
  * blocked state is on a semaphore wait list. */
-struct thread {
+struct thread {    //@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ thread 구조체 정의
 	/* Owned by thread.c. */
+	int64_t wakeup_tick;  // wakeup tick 필드 지정
 	tid_t tid;                          /* Thread identifier. */
 	enum thread_status status;          /* Thread state. */
 	char name[16];                      /* Name (for debugging purposes). */
 	int priority;                       /* Priority. */
-
+	int init_priority; 					/*기존 우선순위 기억*/
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
+	struct lock *wait_on_lock;          /* 대기 중인 lock */
+	struct list donations;              /* 받은 donation 리스트*/
+	struct list_elem donation_elem;     /*  */
+	struct list acquired_locks;         /* 현재 보유 중인 lock들 */
 
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
@@ -142,5 +147,9 @@ int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 
 void do_iret (struct intr_frame *tf);
+
+void thread_sleep(int64_t wakeup_tick);
+void thread_awake(int64_t now_tick);
+
 
 #endif /* threads/thread.h */
