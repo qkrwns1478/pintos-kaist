@@ -29,17 +29,17 @@
 
 /* List of processes in THREAD_READY state, that is, processes
    that are ready to run but not actually running. */
-static struct list ready_list;
+static struct list ready_list; // ready_list: 대기 중인 스레드 목록 ( 우선순위 정렬 )
 
 /* 잠 재워질 스레드 리스트 */
-static struct list sleep_list;
+static struct list sleep_list; // sleep_list: 잠자는 스레드 목록 (오름차순 정렬)
 
 
 /* tick을 초기화 하고 반환  | 가장 빨리 찾아올 tick ( 스레드가 일어나야 할 시간 )*/
-int64_t reset_tick(int64_t tick) {
-	if (tick < next_tick_to_awake)
-		next_tick_to_awake = tick;
-	return next_tick_to_awake;
+int64_t reset_tick(int64_t tick) { // tick을 초기화하고 반환하는 함수
+	if (tick < next_tick_to_awake) // tick이 현재 저장된 tick보다 작다면
+		next_tick_to_awake = tick; // tick을 next_tick_to_awake에 저장
+	return next_tick_to_awake; // tick을 반환
 }
 
 /* tick 시간 비교 */
@@ -63,25 +63,25 @@ void thread_unlock(struct thread *t); // 스레드의 lock을 해제하는 함�
 
 
 /* Idle thread. */
-static struct thread *idle_thread;
+static struct thread *idle_thread; // idle 스레드 | 대기 중인 스레드가 없을 때 실행되는 스레드
 
 /* Initial thread, the thread running init.c:main(). */
-static struct thread *initial_thread;
+static struct thread *initial_thread; // 초기 스레드 | 	PintOS에서 가장 처음 만들어지는 스레드를 가리키는 포인터
 
 /* Lock used by allocate_tid(). */
-static struct lock tid_lock;
+static struct lock tid_lock; // TID 할당을 위한 lock | 스레드 생성 시 TID를 할당하기 위해 사용되는 lock
 
 /* Thread destruction requests */
-static struct list destruction_req;
+static struct list destruction_req; // 스레드 파괴 요청 리스트 | 스레드가 종료될 때, 자원을 해제하기 위한 요청을 저장하는 리스트
 
 /* Statistics. */
-static long long idle_ticks;    /* # of timer ticks spent idle. */
-static long long kernel_ticks;  /* # of timer ticks in kernel threads. */
-static long long user_ticks;    /* # of timer ticks in user programs. */
+static long long idle_ticks;    /* # of timer ticks spent idle. | idle 상태에서의 tick 수*/ 
+static long long kernel_ticks;  /* # of timer ticks in kernel threads. | 커널 스레드 실행 시간 */
+static long long user_ticks;    /* # of timer ticks in user programs. | 	사용자 프로그램 실행 시간 */
 
 /* Scheduling. */
-#define TIME_SLICE 4            /* # of timer ticks to give each thread. */
-static unsigned thread_ticks;   /* # of timer ticks since last yield. */
+#define TIME_SLICE 4            /* # of timer ticks to give each thread. */ // 스레드에게 주는 타임 슬라이스(선점형 프로세스에서 연속으로 할당되는 시간의 단위)
+static unsigned thread_ticks;   /* # of timer ticks since last yield. */ // 스레드가 마지막으로 양보한 이후의 타이머 틱 수
 
 
 /* If false (default), use round-robin scheduler.
@@ -89,14 +89,14 @@ static unsigned thread_ticks;   /* # of timer ticks since last yield. */
    Controlled by kernel command-line option "-o mlfqs". */
 bool thread_mlfqs;
 
-static void kernel_thread (thread_func *, void *aux);
+static void kernel_thread (thread_func *, void *aux); // 커널 스레드의 기본 함수
 
-static void idle (void *aux UNUSED);
-static struct thread *next_thread_to_run (void);
-static void init_thread (struct thread *, const char *name, int priority);
-static void do_schedule(int status);
-static void schedule (void);
-static tid_t allocate_tid (void);
+static void idle (void *aux UNUSED);  // idle 스레드의 기본 함수 | 스레드가 대기 중일 때 실행되는 함수
+static struct thread *next_thread_to_run (void); // 다음에 실행할 스레드를 선택하는 함수
+static void init_thread (struct thread *, const char *name, int priority); // 스레드 초기화 함수
+static void do_schedule(int status); // 스레드 상태를 변경하는 함수
+static void schedule (void); // 스레드 스케줄링 함수
+static tid_t allocate_tid (void); // 스레드 ID를 할당하는 함수
 
 /* Returns true if T appears to point to a valid thread. */
 #define is_thread(t) ((t) != NULL && (t)->magic == THREAD_MAGIC)
@@ -212,13 +212,20 @@ thread_print_stats (void) {
    The code provided sets the new thread's `priority' member to
    PRIORITY, but no actual priority scheduling is implemented.
    Priority scheduling is the goal of Problem 1-3. */
-tid_t
-thread_create (const char *name, int priority,
-		thread_func *function, void *aux) {
-	struct thread *t;
-	tid_t tid;
 
-	ASSERT (function != NULL);
+/* 새 커널 스레드를 생성하는 함수
+   - name: 스레드 이름
+   - priority: 스레드 우선순위
+   - function: 새 스레드에서 실행할 함수
+   - aux: 해당 함수에 전달할 인자 */
+   tid_t
+   thread_create (const char *name, int priority,
+				  thread_func *function, void *aux) {
+	   struct thread *t;       // 새로 생성할 스레드를 위한 포인터
+	   tid_t tid;              // 새 스레드의 TID (Thread ID)
+   
+	   ASSERT (function != NULL); // 실행할 함수가 NULL이 아닌지 확인 (필수 인자)
+   
 
 	/* Allocate thread. */
 	t = palloc_get_page (PAL_ZERO);
@@ -241,9 +248,10 @@ thread_create (const char *name, int priority,
 	t->tf.eflags = FLAG_IF;
 
 	/* Add to run queue. */
-	thread_unblock (t);
+	thread_unblock (t);  // 생성한 스레드를 ready_list에 넣고 READY 상태로 전환하여 스케줄링 가능하게 함
 
-	return tid;
+	return tid;          // 새로 생성한 스레드의 고유 ID를 반환
+
 }
 
 /* Puts the current thread to sleep.  It will not be scheduled
@@ -252,13 +260,15 @@ thread_create (const char *name, int priority,
    This function must be called with interrupts turned off.  It
    is usually a better idea to use one of the synchronization
    primitives in synch.h. */
+
 void
 thread_block (void) {
-	ASSERT (!intr_context ());
-	ASSERT (intr_get_level () == INTR_OFF);
-	thread_current ()->status = THREAD_BLOCKED;
-	schedule ();
+	ASSERT (!intr_context ());               // 인터럽트 컨텍스트에서는 호출될 수 없음 (커널 코드 보호)
+	ASSERT (intr_get_level () == INTR_OFF);  // 인터럽트가 비활성화된 상태여야 함 (동기화 보장)
+	thread_current ()->status = THREAD_BLOCKED;  // 현재 스레드의 상태를 BLOCKED로 설정하여 실행 대상에서 제외
+	schedule ();                             // 다음 실행할 스레드를 선택하고 문맥 전환 수행
 }
+
 
 #define NO_INLINE __attribute__ ((noinline))
 
@@ -370,7 +380,7 @@ thread_current (void) {
 /* Returns the running thread's tid. */
 tid_t
 thread_tid (void) {
-	return thread_current ()->tid;
+	return thread_current ()->tid; 
 }
 
 /* Deschedules the current thread and destroys it.  Never
@@ -393,8 +403,12 @@ thread_exit (void) {
 /* Yields the CPU.  The current thread is not put to sleep and
    may be scheduled again immediately at the scheduler's whim. */
 void
-thread_yield (void) {
-	struct thread *curr = thread_current ();
+thread_yield (void) {   // 현재 실행 중인 스레드가 자발적으로 CPU를 양보하고 싶을 때 호출 
+						// 	ex) (1)  현재 스레드보다 우선순위가 높은 스레드가 ready_list에 있을 때
+						//		(2)  timer_interrupt()에서 TIME_SLICE가 초과됐을 때 (타임 슬라이스 종료 → 선점)
+
+
+	struct thread *curr = thread_current ();// 현재 실행 중인 스레드
 	enum intr_level old_level;
 
 	ASSERT (!intr_context ());
@@ -638,14 +652,14 @@ do_schedule(int status) {
 
 static void
 schedule (void) {
-	struct thread *curr = running_thread ();
-	struct thread *next = next_thread_to_run ();
+	struct thread *curr = running_thread (); // 현재 실행 중인 스레드
+	struct thread *next = next_thread_to_run (); // 다음 실행할 스레드
 
 	ASSERT (intr_get_level () == INTR_OFF);
 	ASSERT (curr->status != THREAD_RUNNING);
 	ASSERT (is_thread (next));
 	/* Mark us as running. */
-	next->status = THREAD_RUNNING;
+	next->status = THREAD_RUNNING; // 다음 스레드의 상태를 RuNNING으로 변경
 
 	/* Start new time slice. */
 	thread_ticks = 0;
