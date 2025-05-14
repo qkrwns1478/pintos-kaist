@@ -211,10 +211,14 @@ thread_create (const char *name, int priority,
 	t->tf.eflags = FLAG_IF;
 
 	/* Add to run queue. */
-	thread_unblock (t);
+	thread_unblock (t); // Insert thread in ready_list in the order of priority
 
 	/* Compare the priorities of the currently running thread and the newly inserted one. 
 	 * Yield the CPU if the newly arriving thread has higher priority */
+	// struct thread *front = list_entry(list_begin(&ready_list), struct thread, elem);
+	// if (thread_get_priority() < front->priority) // Compare priority of new thread and priority of the current thread
+	// 	thread_yield(); // The current thread yields CPU if the priority of the new thread is higher
+	do_preemption();
 
 	return tid;
 }
@@ -250,7 +254,7 @@ thread_unblock (struct thread *t) {
 	old_level = intr_disable ();
 	ASSERT (t->status == THREAD_BLOCKED);
 	// list_push_back (&ready_list, &t->elem);
-	list_insert_ordered(&ready_list, &t->elem, cmp_priority, NULL);
+	list_insert_ordered(&ready_list, &t->elem, cmp_priority, NULL); // The unblocked thread is inserted to ready_list in priority order
 	t->status = THREAD_READY;
 	intr_set_level (old_level);
 }
@@ -314,7 +318,7 @@ thread_yield (void) {
 	old_level = intr_disable ();
 	if (curr != idle_thread) {
 		// list_push_back (&ready_list, &curr->elem);
-		list_insert_ordered(&ready_list, &curr->elem, cmp_priority, NULL);
+		list_insert_ordered(&ready_list, &curr->elem, cmp_priority, NULL); // The current thread is inserted to ready_list to prioirty order.
 	}
 		
 	do_schedule (THREAD_READY);
@@ -324,13 +328,21 @@ thread_yield (void) {
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void
 thread_set_priority (int new_priority) {
-	thread_current ()->priority = new_priority;
+	thread_current ()->priority = new_priority; // Set priority of the current thread
+	// list_sort(&ready_list, cmp_priority, NULL); // Reorder the ready_list
+	do_preemption();
 }
 
 /* Returns the current thread's priority. */
 int
 thread_get_priority (void) {
 	return thread_current ()->priority;
+}
+
+/* Returns the current thread's original priority. */
+int
+thread_get_priority_ori (void) {
+	return thread_current ()->priority_ori;
 }
 
 /* Sets the current thread's nice value to NICE. */
@@ -408,8 +420,7 @@ kernel_thread (thread_func *function, void *aux) {
 }
 
 
-/* Does basic initialization of T as a blocked thread named
-   NAME. */
+/* Does basic initialization of T as a blocked thread named NAME. */
 static void
 init_thread (struct thread *t, const char *name, int priority) {
 	ASSERT (t != NULL);
@@ -421,7 +432,12 @@ init_thread (struct thread *t, const char *name, int priority) {
 	strlcpy (t->name, name, sizeof t->name);
 	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
 	t->priority = priority;
+	t->priority_ori = priority;
 	t->magic = THREAD_MAGIC;
+
+	/* Initializes data structure for priority donation */
+	lock_init(&t->wait_on_lock);
+	list_init(&t->donations);
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should
@@ -670,4 +686,29 @@ bool cmp_priority(struct list_elem *a, struct list_elem *b, void *aux UNUSED) {
 	struct thread *t1 = list_entry(a, struct thread, elem);
     struct thread *t2 = list_entry(b, struct thread, elem);
     return t1->priority > t2->priority;
+}
+
+bool cmp_priority_d(struct list_elem *a, struct list_elem *b, void *aux UNUSED) {
+	struct thread *t1 = list_entry(a, struct thread, d_elem);
+    struct thread *t2 = list_entry(b, struct thread, d_elem);
+    return t1->priority > t2->priority;
+}
+
+int get_highest_priority (void) {
+	int res = PRI_MIN;
+	struct thread *curr = thread_current();
+	struct list_elem *e;
+	for (e = list_begin (&curr->donations); e != list_end (&curr->donations); e = list_next (e)) {
+		struct thread *t = list_entry(e, struct thread, d_elem);
+		if (t->priority > res)
+			res = t->priority;
+	}
+	return res;
+}
+
+void
+do_preemption (void) {
+	struct thread *front = list_entry(list_front(&ready_list), struct thread, elem);
+	if ((!list_empty (&ready_list)) && (thread_get_priority() < front->priority))
+        thread_yield ();
 }

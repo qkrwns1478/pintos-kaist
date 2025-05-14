@@ -66,7 +66,8 @@ sema_down (struct semaphore *sema) {
 
 	old_level = intr_disable ();
 	while (sema->value == 0) {
-		list_push_back (&sema->waiters, &thread_current ()->elem);
+		// list_push_back (&sema->waiters, &thread_current ()->elem);
+		list_insert_ordered(&sema->waiters, &thread_current()->elem, cmp_priority, NULL);
 		thread_block ();
 	}
 	sema->value--;
@@ -109,10 +110,12 @@ sema_up (struct semaphore *sema) {
 	ASSERT (sema != NULL);
 
 	old_level = intr_disable ();
-	if (!list_empty (&sema->waiters))
-		thread_unblock (list_entry (list_pop_front (&sema->waiters),
-					struct thread, elem));
+	if (!list_empty (&sema->waiters)) {
+		list_sort(&sema->waiters, cmp_priority, NULL);
+		thread_unblock (list_entry (list_pop_front (&sema->waiters), struct thread, elem));
+	}
 	sema->value++;
+	do_preemption();
 	intr_set_level (old_level);
 }
 
@@ -188,6 +191,26 @@ lock_acquire (struct lock *lock) {
 	ASSERT (!intr_context ());
 	ASSERT (!lock_held_by_current_thread (lock));
 
+	/* If the lock is not available, store address of the lock.
+     * Store the current priority and maintain donated threads on list (multiple donation).
+     * Donate priority. */
+	// struct thread *curr = thread_current();
+	// if (lock->holder != NULL) {
+	// 	curr->wait_on_lock = lock;
+    // 	list_insert_ordered(&lock->holder->donations, &curr->d_elem, cmp_priority_d, NULL);
+	// 	// if (curr->priority > lock->holder->priority)
+    //     // 	lock->holder->priority = curr->priority;
+	// 	struct thread *holder = curr->wait_on_lock->holder;
+	// 	while (holder) {
+	// 		holder->priority = thread_get_priority();
+	// 		if (!holder->wait_on_lock)
+	// 			break;
+	// 		holder = holder->wait_on_lock->holder;
+	// 	}
+	// }
+
+	/* Acquires lock for the current thread, first waiting 
+	   for any current owner to release it if necessary. */
 	sema_down (&lock->semaphore);
 	lock->holder = thread_current ();
 }
@@ -224,6 +247,24 @@ lock_release (struct lock *lock) {
 
 	lock->holder = NULL;
 	sema_up (&lock->semaphore);
+
+	/* When the lock is released, remove the thread that holds the lock on donation list and set priority properly. */
+	// Remove the thread waiting for the lock from donation list
+	// struct thread *curr = thread_current();
+	// struct list_elem *e = list_begin(&curr->donations);
+	// while (e != list_end(&curr->donations)) {
+	// 	struct thread *t = list_entry(e, struct thread, d_elem);
+	// 	if (t->wait_on_lock == lock) list_remove(e);
+	// 	else e = list_next(e);
+	// }
+	// // Set priority of the current thread
+	// if (list_empty(&curr->donations))
+	// 	curr->priority = thread_get_priority_ori();
+	// else {
+	// 	int highest = get_highest_priority();
+	// 	int curr_ori = thread_get_priority_ori();
+	// 	curr->priority = (highest > curr_ori) ? highest : curr_ori;
+	// }
 }
 
 /* Returns true if the current thread holds LOCK, false
