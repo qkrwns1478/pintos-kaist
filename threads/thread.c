@@ -156,11 +156,11 @@ thread_init (void) {
 /* Starts preemptive thread scheduling by enabling interrupts.
    Also creates the idle thread. */
 void
-thread_start (void) {
+thread_start (void) { // 스레드 시작 함수
 	/* Create the idle thread. */
-	struct semaphore idle_started;
-	sema_init (&idle_started, 0);
-	thread_create ("idle", PRI_MIN, idle, &idle_started);
+	struct semaphore idle_started; // idle 스레드가 시작되었음을 알리기 위한 세마포어
+	sema_init (&idle_started, 0); // 세마포어 초기화
+	thread_create ("idle", PRI_MIN, idle, &idle_started); // idle 스레드 생성
 
 	/* Start preemptive thread scheduling. */
 	intr_enable ();
@@ -172,8 +172,8 @@ thread_start (void) {
 /* Called by the timer interrupt handler at each timer tick.
    Thus, this function runs in an external interrupt context. */
 void
-thread_tick (void) {
-	struct thread *t = thread_current ();
+thread_tick (void) { // 타이머 인터럽트 발생 시 호출되는 함수
+	struct thread *t = thread_current (); 
 
 	/* Update statistics. */
 	if (t == idle_thread)
@@ -421,10 +421,15 @@ thread_yield (void) {   // 현재 실행 중인 스레드가 자발적으로 CPU
 }
 
 /* Sets the current thread's priority to NEW_PRIORITY. */
-void
-thread_set_priority (int new_priority) {
-	thread_current ()->priority = new_priority;
+void 
+thread_set_priority(int new_priority) {
+	thread_current()->init_priority = new_priority;
+	refresh_priority();
+
+	// 우선순위가 낮아졌을 경우 CPU 양보 필요
+	test_max_priority();
 }
+
 
 /* Returns the current thread's priority. */
 int
@@ -699,4 +704,53 @@ allocate_tid (void) {
 	lock_release (&tid_lock);
 
 	return tid;
+}
+
+
+void donate_priority(void) {
+    struct thread *cur = thread_current();
+    struct lock *lock = cur->wait_on_lock;
+    while (lock && lock->holder && lock->holder->priority < cur->priority) {
+        lock->holder->priority = cur->priority;
+        cur = lock->holder;
+        lock = cur->wait_on_lock;
+    }
+}
+
+void
+refresh_priority(void) {
+    struct thread *cur = thread_current();
+
+    // Step 1: 우선 기본 우선순위로 초기화
+    cur->priority = cur->init_priority;
+
+    // Step 2: donations 리스트가 비어있지 않다면, 가장 높은 우선순위 기부자를 반영
+    if (!list_empty(&cur->donations)) {
+        // donations 리스트는 priority 순으로 정렬되어 있다고 가정
+        struct thread *donor = list_entry(
+            list_front(&cur->donations), struct thread, donation_elem);
+
+        if (donor->priority > cur->priority)
+            cur->priority = donor->priority;
+    }
+}
+
+
+void remove_with_lock(struct lock *lock) {
+	struct list_elem *e = list_begin(&thread_current()->donations);
+	while (e != list_end(&thread_current()->donations)) {
+		struct thread *t = list_entry(e, struct thread, donation_elem);
+		if (t->wait_on_lock == lock)
+			e = list_remove(e);  // donations 목록에서 제거
+		else
+			e = list_next(e);
+	}
+}
+
+void test_max_priority(void) {
+    if (!list_empty(&ready_list)) {
+        struct thread *front = list_entry(list_front(&ready_list), struct thread, elem);
+        if (thread_current()->priority < front->priority)
+            thread_yield();
+    }
 }

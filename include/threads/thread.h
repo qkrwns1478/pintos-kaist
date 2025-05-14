@@ -7,6 +7,7 @@
 #include "threads/interrupt.h"
 #ifdef VM
 #include "vm/vm.h"
+#include "threads/synch.h"
 #endif
 
 
@@ -119,6 +120,13 @@ struct thread {
 	int priority;                       /* Priority. */
 	struct list_elem elem; // ready_list, sleep_list에 엘레멘트를 언제 담아야 할지 판별
 	int64_t wakeup_tick;  // 스레드가 언제 일어나야할지를 저장하는 필드 추가함
+	/* Original priority before donation */
+	int init_priority;
+	struct lock *wait_on_lock;
+	struct list donations;
+	struct list_elem donation_elem;  
+
+
 
 
 
@@ -186,5 +194,8 @@ int thread_get_recent_cpu (void); // 현재 스레드의 recent_cpu 값 반환 (
 int thread_get_load_avg (void); // 시스템의 load_avg 값을 반환 (MLFQS용)
 
 void do_iret (struct intr_frame *tf); // 스레드의 레지스터 상태를 복구하여 사용자 프로그램으로 복귀
+
+void test_max_priority(void);
+
 
 #endif 

@@ -28,7 +28,7 @@ void thread_awake(int64_t ticks);
 
 
 /* Number of timer ticks since OS booted. */
-static int64_t ticks;
+static int64_t ticks; 
 
 /* Number of loops per timer tick.
    Initialized by timer_calibrate(). */
