@@ -98,6 +98,16 @@ struct thread {
 	/* New field for local tick */
 	int64_t wakeup_tick;				/* tick till wake up */
 
+	/* New field for initial priority */
+	int priority_ori;
+
+	/* Data structure for Multiple Donation */
+	struct list donations;				/* List of Donors */
+	struct list_elem d_elem;			/* List element for donations */
+
+	/* Data structure for Nested Donation */
+	struct lock *wait_on_lock;			/* lock that it waits for */
+
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4;                     /* Page map level 4 */
@@ -140,6 +150,7 @@ void thread_exit (void) NO_RETURN;
 void thread_yield (void);
 
 int thread_get_priority (void);
+int thread_get_priority_ori (void);
 void thread_set_priority (int);
 
 int thread_get_nice (void);
@@ -155,5 +166,8 @@ void thread_wakeup(int64_t ticks);
 // int64_t get_min_tick(int64_t ticks);
 bool cmp_tick(struct list_elem *a, struct list_elem *b, void *aux UNUSED);
 bool cmp_priority(struct list_elem *a, struct list_elem *b, void *aux UNUSED);
+bool cmp_priority_d(struct list_elem *a, struct list_elem *b, void *aux UNUSED);
+int get_highest_priority (void);
+void do_preemption (void);
 
 #endif /* threads/thread.h */
