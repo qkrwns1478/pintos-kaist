@@ -320,7 +320,6 @@ thread_yield (void) {
 		// list_push_back (&ready_list, &curr->elem);
 		list_insert_ordered(&ready_list, &curr->elem, cmp_priority, NULL); // The current thread is inserted to ready_list to prioirty order.
 	}
-		
 	do_schedule (THREAD_READY);
 	intr_set_level (old_level);
 }
@@ -328,8 +327,9 @@ thread_yield (void) {
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void
 thread_set_priority (int new_priority) {
-	thread_current ()->priority = new_priority; // Set priority of the current thread
+	thread_current ()->priority_ori = new_priority; // Set priority of the current thread
 	// list_sort(&ready_list, cmp_priority, NULL); // Reorder the ready_list
+	thread_refresh_priority();
 	do_preemption();
 }
 
@@ -436,7 +436,7 @@ init_thread (struct thread *t, const char *name, int priority) {
 	t->magic = THREAD_MAGIC;
 
 	/* Initializes data structure for priority donation */
-	lock_init(&t->wait_on_lock);
+	t->wait_on_lock = NULL;
 	list_init(&t->donations);
 }
 
@@ -632,7 +632,6 @@ void thread_sleep(int64_t ticks) {
     if (curr != idle_thread) {						// If the current thread is not idle thread
 		old_level = intr_disable(); 				// (disable interrupt)
 		curr->wakeup_tick = ticks;					// store the local tick to wake up,
-		// put_min_tick(ticks);						// update the global tick if necessary,
 		list_insert_ordered(&sleep_list, &curr->elem, cmp_tick, NULL);
 		thread_block();								// change the state of the caller thread to BLOCKED and call schedule()
 		intr_set_level(old_level); 					// (enable interrupt)
@@ -654,27 +653,8 @@ void thread_wakeup(int64_t ticks) {
 			list_pop_front(&sleep_list);
 			thread_unblock(t);
 		} else break;
-		// if (t->wakeup_tick <= tick) {
-		// 	list_pop_front(&sleep_list);
-		// 	thread_unblock(t);
-		// } else {
-		// 	tick = t->wakeup_tick;
-		// 	break;
-		// }
 	}
 }
-
-// /* The function that save the minimum value of tick that threads have. */
-// void put_min_tick(int64_t ticks) {
-// 	tick = get_min_tick(ticks);
-// }
-
-// /* The function that return the minimum value of tick. */
-// int64_t get_min_tick(int64_t ticks) {
-// 	// 'ticks' is a local variable, 'tick' is a global variable.
-// 	int64_t res = (ticks < tick) ? ticks : tick;
-// 	return res;
-// }
 
 bool cmp_tick(struct list_elem *a, struct list_elem *b, void *aux UNUSED) {
     struct thread *t1 = list_entry(a, struct thread, elem);
@@ -682,13 +662,13 @@ bool cmp_tick(struct list_elem *a, struct list_elem *b, void *aux UNUSED) {
     return t1->wakeup_tick < t2->wakeup_tick;
 }
 
-bool cmp_priority(struct list_elem *a, struct list_elem *b, void *aux UNUSED) {
+bool cmp_priority(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED) {
 	struct thread *t1 = list_entry(a, struct thread, elem);
     struct thread *t2 = list_entry(b, struct thread, elem);
     return t1->priority > t2->priority;
 }
 
-bool cmp_priority_d(struct list_elem *a, struct list_elem *b, void *aux UNUSED) {
+bool cmp_priority_donate(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED) {
 	struct thread *t1 = list_entry(a, struct thread, d_elem);
     struct thread *t2 = list_entry(b, struct thread, d_elem);
     return t1->priority > t2->priority;
@@ -708,7 +688,21 @@ int get_highest_priority (void) {
 
 void
 do_preemption (void) {
-	struct thread *front = list_entry(list_front(&ready_list), struct thread, elem);
-	if ((!list_empty (&ready_list)) && (thread_get_priority() < front->priority))
-        thread_yield ();
+	if (!list_empty (&ready_list)) {
+		struct thread *front = list_entry(list_front(&ready_list), struct thread, elem);
+		if (thread_get_priority() < front->priority)
+			thread_yield ();
+	}
+}
+
+void
+thread_refresh_priority (void) {
+	struct thread *curr = thread_current();
+	curr->priority = curr->priority_ori;
+	if (!list_empty(&curr->donations)) {
+		list_sort(&curr->donations, cmp_priority_donate, NULL);
+		struct thread *front = list_entry(list_front(&curr->donations), struct thread, d_elem);
+		if (front->priority > thread_get_priority())
+			curr->priority = front->priority;
+	}
 }
