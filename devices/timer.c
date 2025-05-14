@@ -80,14 +80,14 @@ timer_calibrate (void) {
 	printf ("%'"PRIu64" loops/s.\n", (uint64_t) loops_per_tick * TIMER_FREQ);
 }
 
-/* Returns the number of timer ticks since the OS booted. */
+/* OS가 부팅된 이후로 지난 timer tick(일정한 주기로 발생시키는 인터럽트 1회) 수를 반환하는 함수 */
 int64_t
 timer_ticks (void) {
-	enum intr_level old_level = intr_disable ();
-	int64_t t = ticks;
-	intr_set_level (old_level);
-	barrier ();
-	return t;
+	enum intr_level old_level = intr_disable (); // (1) 인터럽트를 비활성화하고 이전 상태 저장
+	int64_t t = ticks;                          // (2) 전역 변수 ticks 값을 안전하게 읽어옴
+	intr_set_level (old_level);                // (3) 이전 인터럽트 상태로 복원
+	barrier ();                                // (4) 컴파일러의 명령어 재배치를 막기 위한 메모리 장벽
+	return t;                                  // (5) 읽어온 tick 값 반환
 }
 
 /* Returns the number of timer ticks elapsed since THEN, which
@@ -135,9 +135,8 @@ timer_print_stats (void) {
 /* Timer interrupt handler. */
 static void 
 timer_interrupt(struct intr_frame *args UNUSED) {
-	ticks++;
-	printf("[timer_interrupt] tick = %lld\n", ticks);
-  
+	ticks++; 
+
 	if (loops_per_tick > 0)
 	  thread_awake(ticks);
   
@@ -147,16 +146,22 @@ timer_interrupt(struct intr_frame *args UNUSED) {
 
 /* Returns true if LOOPS iterations waits for more than one timer
    tick, otherwise false. */
-   static bool too_many_loops (unsigned loops) {
-	int64_t start = ticks;
-	while (ticks == start)
-		barrier();
+   /* 주어진 loop 횟수로 busy_wait()을 돌렸을 때
+   한 틱 이상 시간이 경과하는지를 판단하는 함수.
+   즉, loop 수가 너무 많은지를 확인함. */
 
-	start = ticks;
-	busy_wait(loops);
+   static bool too_many_loops (unsigned loops) { 
+	int64_t start = ticks; // (1) 현재 시점을 tick 단위로 저장
+	while (ticks == start) // (2) tick 값이 변하지 않을 동안 대기
+		barrier(); // 컴파일러 최적화를 막기 위한 메모리 장벽
 
-	barrier();
-	return start != ticks;  
+
+	start = ticks; // (3) tick이 하나 증가한 시점부터 다시 시작
+	busy_wait(loops);// (4) 주어진 loop만큼 바쁜 대기 (시간 측정용)
+
+	barrier(); // (5) busy_wait 이후의 컴파일러 최적화 방지
+	return start != ticks;  // (6) busy_wait 중 tick이 또 변했는지 확인
+	// → true면 loops가 너무 많아 1 tick 이상 소요됨
 }
 
 
@@ -189,6 +194,6 @@ real_time_sleep (int64_t num, int32_t denom) {
 		   sub-tick timing.  We scale the numerator and denominator
 		   down by 1000 to avoid the possibility of overflow. */
 		ASSERT (denom % 1000 == 0);
-		busy_wait (loops_per_tick * num / 1000);
+		busy_wait (loops_per_tick * num / 1000); 
 	}
 }
