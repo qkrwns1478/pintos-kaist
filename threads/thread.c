@@ -347,10 +347,10 @@ thread_unlock (struct thread *t) { // 스레드를 잠금을 해제하는 함수
 	ASSERT (is_thread (t)); // t가 유효한 스레드인지 확인
 
 	old_level = intr_disable ();
-	ASSERT (t->status == THREAD_BLOCKED); // t가 BLOCKED 상태인지 확인
-	list_push_back (&sleep_list, &t->elem); // sleep_list에 t를 추가
-	t->status = THREAD_READY; // t의 상태를 THREAD_READY로 변경
-	intr_set_level (old_level); // 이전 인터럽트 레벨로 복원
+	ASSERT (t->status == THREAD_BLOCKED);
+	list_insert_ordered(&ready_list, &t->elem, priority_cmp, NULL);
+	t->status = THREAD_READY;
+	intr_set_level (old_level);
 }
 
 /* Returns the name of the running thread. */
@@ -700,3 +700,9 @@ allocate_tid (void) {
 
 	return tid;
 }
+
+bool priority_cmp(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED) {
+	struct thread *a_thread = list_entry(a, struct thread, elem);
+	struct thread *b_thread = list_entry(b, struct thread, elem);
+	return a_thread->priority > b_thread->priority;
+  }

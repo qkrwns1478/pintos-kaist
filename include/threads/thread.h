@@ -187,4 +187,5 @@ int thread_get_load_avg (void); // 시스템의 load_avg 값을 반환 (MLFQS용
 
 void do_iret (struct intr_frame *tf); // 스레드의 레지스터 상태를 복구하여 사용자 프로그램으로 복귀
 
-#endif 
+bool priority_cmp(const struct list_elem *a, const struct list_elem *b, void *aux);
+#endif /* threads/thread.h */
