@@ -117,9 +117,12 @@ struct thread {
 	enum thread_status status;          /* Thread state. */
 	char name[16];                      /* Name (for debugging purposes). */
 	int priority;                       /* Priority. */
+	int original_priority;
 	struct list_elem elem; // ready_list, sleep_list에 엘레멘트를 언제 담아야 할지 판별
 	int64_t wakeup_tick;  // 스레드가 언제 일어나야할지를 저장하는 필드 추가함
-
+	struct list donations; // donation_list: 우선순위 기부를 위한 리스트
+	struct list_elem donation_elem; // donation_elem: donation_list에 삽입하기 위한 엘레멘트
+	struct lock *wait_on_lock; //	우선순위 기부를 위한 대기 중인 락
 
 
 #ifdef USERPROG //  USERPROG 메크로가 정의되어 있을 경우에만 사용될 것 | pml4(Page Map Level 4, 사용자 주소 공간)가 사용되므로,
@@ -186,5 +189,9 @@ int thread_get_recent_cpu (void); // 현재 스레드의 recent_cpu 값 반환 (
 int thread_get_load_avg (void); // 시스템의 load_avg 값을 반환 (MLFQS용)
 
 void do_iret (struct intr_frame *tf); // 스레드의 레지스터 상태를 복구하여 사용자 프로그램으로 복귀
+
+bool priority_cmp(const struct list_elem *a, const struct list_elem *b, void *aux);
+
+void refresh_priority(struct thread *t);
 
 #endif 
