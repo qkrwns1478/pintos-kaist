@@ -402,28 +402,36 @@ thread_exit (void) {
 
 /* Yields the CPU.  The current thread is not put to sleep and
    may be scheduled again immediately at the scheduler's whim. */
-void
-thread_yield (void) {   // 현재 실행 중인 스레드가 자발적으로 CPU를 양보하고 싶을 때 호출 
-						// 	ex) (1)  현재 스레드보다 우선순위가 높은 스레드가 ready_list에 있을 때
-						//		(2)  timer_interrupt()에서 TIME_SLICE가 초과됐을 때 (타임 슬라이스 종료 → 선점)
-
-
-	struct thread *curr = thread_current ();// 현재 실행 중인 스레드
+   void 
+   thread_yield(void) {
+	struct thread *curr = thread_current();
 	enum intr_level old_level;
-
+  
 	ASSERT (!intr_context ());
-
-	old_level = intr_disable ();
+  
+	old_level = intr_disable();
 	if (curr != idle_thread)
-		list_insert_ordered(&ready_list, &curr->elem, priority_greater, NULL);
-	do_schedule (THREAD_READY);
-	intr_set_level (old_level);
-}
+	  list_insert_ordered(&ready_list, &curr->elem, priority_cmp, NULL);  
+	do_schedule(THREAD_READY);
+	intr_set_level(old_level);
+  }
 
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void
-thread_set_priority (int new_priority) {
-	thread_current ()->priority = new_priority;
+thread_set_priority(int new_priority) {
+	struct thread *curr = thread_current();
+	enum intr_level old_level = intr_disable();
+
+	curr->original_priority = new_priority;
+	refresh_priority(curr);
+
+	if (!list_empty(&ready_list)) {
+		struct thread *front = list_entry(list_front(&ready_list), struct thread, elem);
+		if (front->priority > curr->priority && curr != idle_thread)
+			thread_yield();
+	}
+
+	intr_set_level(old_level);
 }
 
 /* Returns the current thread's priority. */
@@ -679,9 +687,8 @@ schedule (void) {
 		   schedule(). */
 		if (curr && curr->status == THREAD_DYING && curr != initial_thread) {
 			ASSERT (curr != next);
-			list_push_back (&destruction_req, &curr->elem);
 		}
-
+		
 		/* Before switching the thread, we first save the information
 		 * of current running. */
 		thread_launch (next);
@@ -706,3 +713,16 @@ bool priority_cmp(const struct list_elem *a, const struct list_elem *b, void *au
 	struct thread *b_thread = list_entry(b, struct thread, elem);
 	return a_thread->priority > b_thread->priority;
   }
+
+  void refresh_priority(struct thread *t) {
+	int max_priority = t->original_priority;
+
+	if (!list_empty(&t->donations)) {
+		struct thread *donated = list_entry(list_front(&t->donations),
+											struct thread, donation_elem);
+		if (donated->priority > max_priority)
+			max_priority = donated->priority;
+	}
+
+	t->priority = max_priority;
+}
