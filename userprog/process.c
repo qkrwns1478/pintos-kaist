@@ -22,10 +22,14 @@
 #include "vm/vm.h"
 #endif
 
+#define ARGUMENT_LIMIT 64
+#define STACK_BOTTOM (USER_STACK - PGSIZE)
+
 static void process_cleanup (void);
 static bool load (const char *file_name, struct intr_frame *if_);
 static void initd (void *f_name);
 static void __do_fork (void *);
+static bool argument_stack(struct intr_frame *if_);
 
 /* General process initializer for initd and other process. */
 static void
@@ -50,8 +54,11 @@ process_create_initd (const char *file_name) {
 		return TID_ERROR;
 	strlcpy (fn_copy, file_name, PGSIZE);
 
+	char *save_ptr = NULL;
+    char *parsed_name = strtok_r(file_name, " ", &save_ptr);
+
 	/* Create a new thread to execute FILE_NAME. */
-	tid = thread_create (file_name, PRI_DEFAULT, initd, fn_copy);
+	tid = thread_create (parsed_name, PRI_DEFAULT, initd, fn_copy);
 	if (tid == TID_ERROR)
 		palloc_free_page (fn_copy);
 	return tid;
@@ -165,6 +172,20 @@ process_exec (void *f_name) {
 	char *file_name = f_name;
 	bool success;
 
+	/* Parse file_name into command line and arguments */
+	char *argv[ARGUMENT_LIMIT];
+	char *save_ptr = NULL;
+	char *token = strtok_r(f_name, " ", &save_ptr);
+
+	int argc = 0;
+	while (token) {
+		argv[argc++] = token;
+		token = strtok_r(NULL, " ", &save_ptr);
+	}
+	argv[argc] = 0;
+
+	file_name = argv[0];
+	
 	/* We cannot use the intr_frame in the thread structure.
 	 * This is because when current thread rescheduled,
 	 * it stores the execution information to the member. */
@@ -172,12 +193,17 @@ process_exec (void *f_name) {
 	_if.ds = _if.es = _if.ss = SEL_UDSEG;
 	_if.cs = SEL_UCSEG;
 	_if.eflags = FLAG_IF | FLAG_MBS;
+	_if.R.rsi = (uint64_t) argv; // Point %rsi to argv (the address of argv[0])
+	_if.R.rdi = argc; // Set %rdi to argc
 
 	/* We first kill the current context */
 	process_cleanup ();
 
 	/* And then load the binary */
-	success = load (file_name, &_if);
+	success = load (file_name, &_if); // Pass the program name to load()
+
+	argument_stack(&_if);
+	hex_dump(_if.rsp, _if.rsp, USER_STACK - (uint64_t)_if.rsp, true); // for debugging user stack
 
 	/* If load failed, quit. */
 	palloc_free_page (file_name);
@@ -185,7 +211,7 @@ process_exec (void *f_name) {
 		return -1;
 
 	/* Start switched process. */
-	do_iret (&_if);
+	do_iret (&_if); // asm volatile blabla
 	NOT_REACHED ();
 }
 
@@ -204,6 +230,8 @@ process_wait (tid_t child_tid UNUSED) {
 	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
+	for (int i = 0; i < 1000000000; i++) {
+	}
 	return -1;
 }
 
@@ -425,7 +453,6 @@ done:
 	return success;
 }
 
-
 /* Checks whether PHDR describes a valid, loadable segment in
  * FILE and returns true if so, false otherwise. */
 static bool
@@ -637,3 +664,44 @@ setup_stack (struct intr_frame *if_) {
 	return success;
 }
 #endif /* VM */
+
+static bool argument_stack(struct intr_frame *if_) {
+	char** argv = (char **) if_->R.rsi;
+	int argc = if_->R.rdi;
+	char *addrs[argc]; // argv[i]의 유저 스택 상의 주소 저장
+
+	/* 1. Push argv[i][…] */
+	for (int i = argc-1; i >= 0; i--) {
+		size_t len = strlen(*(argv + i)) + 1; // strlen은 '\0'을 세지 않기 때문에 +1 해줌
+		if_->rsp -= len;
+		if ((uint64_t)if_->rsp < STACK_BOTTOM)
+			return false;
+		memcpy(if_->rsp, *(argv + i), len);
+		addrs[i] = if_->rsp;
+	}
+	/* 2. Push word-align */
+	while ((uint64_t)if_->rsp % 8 != 0)
+		if_->rsp--;
+		if ((uint64_t)if_->rsp < STACK_BOTTOM)
+			return false;
+	/* 3. Push argv[argc] */
+	uintptr_t zero = 0;
+	if_->rsp -= sizeof(uintptr_t);
+	memcpy(if_->rsp, &zero, sizeof(uintptr_t));
+	/* 4. Push argv (pointers) */
+	for (int i = argc-1; i >= 0; i--) {
+		// if_->rsp -= sizeof(uintptr_t);
+		// memcpy(if_->rsp, (argv + i), sizeof(uintptr_t));
+		if_->rsp -= sizeof(char *);
+		if ((uint64_t)if_->rsp < STACK_BOTTOM)
+			return false;
+    	memcpy(if_->rsp, &addrs[i], sizeof(char *));
+	}
+	/* 5. Push fake return address */
+	if_->rsp -= sizeof(uintptr_t);
+	if ((uint64_t)if_->rsp < STACK_BOTTOM)
+		return false;
+	memcpy(if_->rsp, &zero, sizeof(uintptr_t));
+
+	return true;
+}
