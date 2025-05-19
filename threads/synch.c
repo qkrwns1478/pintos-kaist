@@ -115,7 +115,8 @@ sema_up (struct semaphore *sema) {
 		thread_unblock (list_entry (list_pop_front (&sema->waiters), struct thread, elem));
 	}
 	sema->value++;
-	do_preemption();
+	if (!intr_context())
+		do_preemption();
 	intr_set_level (old_level);
 }
 
@@ -194,7 +195,7 @@ lock_acquire (struct lock *lock) {
      * Store the current priority and maintain donated threads on list (multiple donation).
      * Donate priority. */
 	struct thread *curr = thread_current();
-	if (lock->holder != NULL) {
+	if (!thread_mlfqs && lock->holder != NULL) {
 		curr->wait_on_lock = lock;
     	list_insert_ordered(&lock->holder->donations, &curr->d_elem, cmp_priority_donate, NULL);
 		struct thread *t = thread_current ();
@@ -248,25 +249,19 @@ lock_release (struct lock *lock) {
 
 	lock->holder = NULL;
 	/* When the lock is released, remove the thread that holds the lock on donation list and set priority properly. */
-	// Remove the thread waiting for the lock from donation list
-	struct thread *curr = thread_current();
-	struct list_elem *e = list_begin(&curr->donations);
-	while (e != list_end(&curr->donations)) {
-		struct thread *t = list_entry(e, struct thread, d_elem);
-		if (t->wait_on_lock == lock) e = list_remove(e);
-		else e = list_next(e);
+	if (!thread_mlfqs) {
+		// Remove the thread waiting for the lock from donation list
+		struct thread *curr = thread_current();
+		struct list_elem *e = list_begin(&curr->donations);
+		while (e != list_end(&curr->donations)) {
+			struct thread *t = list_entry(e, struct thread, d_elem);
+			if (t->wait_on_lock == lock) e = list_remove(e);
+			else e = list_next(e);
+		}
+		// Set priority of the current thread
+		thread_refresh_priority();
 	}
 
-	// Set priority of the current thread
-	// if (list_empty(&curr->donations))
-	// 	curr->priority = thread_get_priority_ori();
-	// else {
-	// 	int highest = get_highest_priority();
-	// 	int curr_ori = thread_get_priority_ori();
-	// 	curr->priority = (highest > curr_ori) ? highest : curr_ori;
-	// }
-	thread_refresh_priority();
-	
 	sema_up (&lock->semaphore);
 }
 
