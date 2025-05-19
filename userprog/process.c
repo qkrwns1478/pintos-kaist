@@ -40,35 +40,36 @@ process_init (void) {
  * Notice that THIS SHOULD BE CALLED ONCE. */
 tid_t
 process_create_initd (const char *file_name) {
-	char *fn_copy;
-	tid_t tid;
+	char *fn_copy;  // file_name 을 복사할 문자열 포인터 선언
+	tid_t tid;  // 생성될 스레드의 id를 저장할 변수 선언
 
 	/* Make a copy of FILE_NAME.
 	 * Otherwise there's a race between the caller and load(). */
-	fn_copy = palloc_get_page (0);
-	if (fn_copy == NULL)
-		return TID_ERROR;
-	strlcpy (fn_copy, file_name, PGSIZE);
+	fn_copy = palloc_get_page (0);  // 페이지 크기의 메모리 할당(커널 페이지) : pallc
+	if (fn_copy == NULL)    // 메모리 할당 실패 시
+		return TID_ERROR;   // 오류 반환
+	strlcpy (fn_copy, file_name, PGSIZE); // file_name을 fn_copy에 복사(안전한 복사)
 
 	/* Create a new thread to execute FILE_NAME. */
-	tid = thread_create (file_name, PRI_DEFAULT, initd, fn_copy);
-	if (tid == TID_ERROR)
-		palloc_free_page (fn_copy);
-	return tid;
+	tid = thread_create (file_name, PRI_DEFAULT, initd, fn_copy); // 새 스레드 생성(file_name : 스레드 이름, PRI_DEFAULT : 기본 우선순위, initd : 스레드 실행 함수, fn_copy : 스레드 실행 함수에 전달될 인자)
+	if (tid == TID_ERROR)			// 스레드 생성 실패 시
+		palloc_free_page (fn_copy); // 할당된 메모리 해제				  
+	return tid;					    // 생성된 스레드 ID 반환		 
 }
 
 /* A thread function that launches first user process. */
 static void
 initd (void *f_name) {
 #ifdef VM
-	supplemental_page_table_init (&thread_current ()->spt);
+	supplemental_page_table_init (&thread_current ()->spt); // 가상 메모리 초기화
 #endif
 
-	process_init ();
+	process_init ();  // 프로세스 초기화 (현재는 비어있음)
 
-	if (process_exec (f_name) < 0)
-		PANIC("Fail to launch initd\n");
-	NOT_REACHED ();
+	if (process_exec (f_name) < 0) // process_exec를 호출하여 프로그램 실행
+		PANIC("Fail to launch initd\n"); // 실행 실패 시 커널 패닉 발생
+	NOT_REACHED ();  // 이 지점에 도달하면 안됨. (process_exec는 return하지 않음)
+	// 
 }
 
 /* Clones the current process as `name`. Returns the new process's thread id, or
@@ -176,11 +177,39 @@ process_exec (void *f_name) {
 	/* We first kill the current context */
 	process_cleanup ();
 
-	/* And then load the binary */
-	success = load (file_name, &_if);
+	// file_name 파싱 추가 //
+	char *argv[128]; //최대 문자열 한도
+	int argc = 0;  // argc 초기화
+	char *token, *save_ptr; // strtok_r() 에서 사용하는 토큰 포인터와 상태 저장 포인터
+	
+	char *file_name_copy = palloc_get_page (0);  // file_name은 const 타입이라 수정 불가, palloc을 이용해서 수정 가능한 복사본 만들기
+
+	if(file_name_copy == NULL)
+		return -1;
+	strlcpy (file_name_copy, file_name, PGSIZE);  // file_name 복사
+
+	for (token = strtok_r(file_name_copy, " ", &save_ptr);
+		token != NULL;
+		token = strtok_r(NULL, " ", &save_ptr)) {
+
+		if (argc >= 128) // 안전빵 한도 검사
+			return -1;
+		argv[argc++] = token;
+		}
+
+	// load() 호출 시 argv[0]만 전달 //
+	success = load( argv[0], &_if);
+	if (!success) {
+		palloc_free_page(file_name_copy);
+		return -1;
+	}
+
+
+
+
 
 	/* If load failed, quit. */
-	palloc_free_page (file_name);
+	palloc_free_page (file_name_copy);
 	if (!success)
 		return -1;
 
@@ -536,19 +565,74 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 
 /* Create a minimal stack by mapping a zeroed page at the USER_STACK */
 static bool
-setup_stack (struct intr_frame *if_) {
-	uint8_t *kpage;
-	bool success = false;
+setup_stack (struct intr_frame *if_, char **argv, int argc) {
+	uint8_t *kpage; // 유저 스택으로 사용할 커널 페이지 포인터
+	bool success = false; // 페이지 설치 성공 여부 플래그
 
-	kpage = palloc_get_page (PAL_USER | PAL_ZERO);
-	if (kpage != NULL) {
-		success = install_page (((uint8_t *) USER_STACK) - PGSIZE, kpage, true);
-		if (success)
-			if_->rsp = USER_STACK;
-		else
-			palloc_free_page (kpage);
+	// 유저용 페이지를 할당하고 0으로 초기화 
+	kpage = palloc_get_page (PAL_USER | PAL_ZERO);  // 각 인자의 유저 스택 내 주소를 저장할 배열
+	if (kpage == NULL)  
+		return false;
+
+	// USER_STACK의 바로 아래 주소에 페이지를 매핑(4kb 크기)
+	success = install_page((uint8_t *) USER_STACK - PGSIZE, kpage, true);
+	if (!success) {
+		palloc_free_page(kpage);
+		return false;
 	}
-	return success;
+
+	// rsp를 유저 스택 최상단 주소로 초기화
+	uint64_t rsp = USER_STACK;
+
+	// 각 문자열을 역순으로 스택에 push 하고, 그 주소를 기록
+	char *arg_addrs[argc];						// 각 인자의 유저 스택 내 주소를 저장할 배열
+		for (int i = argc =1; i >= 0; i--) {
+			int len = strlen(argv[i]) + 1;		// 문자열 길이(NULL 문자 포함)
+			rsp -= len;							// 스택에서 문자열 길이 만큼 공간 확보
+			memcpy((void *) rsp, argv[i], len); // 해당 주소에 문자열 복사
+			arg_addrs[i] = (char *) rsp;		// 주소 저장(argv[i]가 가리킬 위치)
+		}
+
+		// 스택 정렬 
+		while (rsp % 8 != 0) {
+			rsp--;					// 8의 배수가 돨 때 까지 스택 포인터 감소
+		}
+
+		// 문자열 주소들을 역순으로 push, argv[] 배열 구성
+		for (int i = argc - 1; 1 >= 0; i--) {
+			rsp -= 8;
+			*(uint64_t *) rsp = (uint64_t) arg_addrs[i]; // 각 문자열의 유저 주소 push
+		}
+
+		// argv 배열 시작 주소 저장 (현재 rsp가 가리키는 곳이 argv 배열 시작 위치임)
+		uint64_t argv_addr = rsp; 
+
+		// argc 값 psuh (정수값)
+		rsp -= 8;
+		*(uint64_t *) rsp = argc;
+
+		// fake rturn address push (0으로 채움, main 함수 return 방지)
+		rsp -= 8;
+		*(uint64_t *) rsp = 0;
+
+		// 최종 스택 포인터를 intr_frame에 반영
+		if_->rsp = rsp;				// 유저 모드로 복귀할 때 사용할 rsp 값 저장
+		if_->R.rsi = argv_addr;     // %rsi <- argv (argv 배열 시작 주소)
+		if_->R.rdi = argc;			// %rdi <- argc (인자 개수)
+
+		return true;
+
+
+	// kpage = palloc_get_page (PAL_USER | PAL_ZERO);  
+	// if (kpage != NULL) {
+	// 	success = install_page (((uint8_t *) USER_STACK) - PGSIZE, kpage, true);
+	// 	if (success)
+	// 		if_->rsp = USER_STACK;
+	// 	else
+	// 		palloc_free_page (kpage);
+	// }
+	// return success;
+	
 }
 
 /* Adds a mapping from user virtual address UPAGE to kernel
