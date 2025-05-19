@@ -108,6 +108,11 @@ struct thread {
 	/* Data structure for Nested Donation */
 	struct lock *wait_on_lock;			/* lock that it waits for */
 
+	struct list_elem child_elem;     /* List element for parent's child list */
+	struct file *run_file;           /* File currently being executed */
+	int exit_status;                 /* Exit status returned to the parent */
+	
+
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4;                     /* Page map level 4 */
