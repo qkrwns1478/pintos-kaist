@@ -43,4 +43,53 @@ syscall_handler (struct intr_frame *f UNUSED) {
 	// TODO: Your implementation goes here.
 	printf ("system call!\n");
 	thread_exit ();
+
+	// int number = (int)f->R.rax;
+	// switch(number) {
+	// 	case SYS_HALT:                   /* Halt the operating system. */
+	// 		halt();
+	// 		break;
+	// 	case SYS_EXIT:                   /* Terminate this process. */
+	// 		exit(0);
+	// 		break;
+	// 	case SYS_FORK:                   /* Clone current process. */
+	// 		// break;
+	// 	case SYS_EXEC:                   /* Switch current process. */
+	// 		// break;
+	// 	case SYS_WAIT:                   /* Wait for a child process to die. */
+	// 		// break;
+	// 	case SYS_CREATE:                 /* Create a file. */
+	// 		// break;
+	// 	case SYS_REMOVE:                 /* Delete a file. */
+	// 		// break;
+	// 	case SYS_OPEN:                   /* Open a file. */
+	// 		// break;
+	// 	case SYS_FILESIZE:               /* Obtain a file's size. */
+	// 		// break;
+	// 	case SYS_READ:                   /* Read from a file. */
+	// 		// break;
+	// 	case SYS_WRITE:                  /* Write to a file. */
+	// 		// break;
+	// 	case SYS_SEEK:                   /* Change position in a file. */
+	// 		// break;
+	// 	case SYS_TELL:                   /* Report current position in a file. */
+	// 		// break;
+	// 	case SYS_CLOSE:                  /* Close a file. */
+	// 		// break;
+	// 	default:
+	// 		printf("undefined system call(%d)\n", number);
+	// 		exit(1);
+	// 		break;
+	// }
+}
+
+void halt (void) {
+	// shutdown_power_off();
+}
+
+void exit(int status) {
+	struct thread *curr = thread_current (); 
+    /* Save exit status at process descriptor */
+    printf("%s: exit(%d)\n" , curr->name , status);
+	thread_exit();
 }
