@@ -1,4 +1,2 @@
 FAIL
-Kernel panic in run: PANIC at ../../threads/thread.c:316 in thread_yield(): assertion `!intr_context ()' failed.
-Call stack: 0x8004217cf2 0x80042071bb 0x8004207d77 0x8004209f21 0x80042142b9 0x8004208d19 0x8004209137 0x8004207394
-Translation of call stack:
+Run didn't produce any output

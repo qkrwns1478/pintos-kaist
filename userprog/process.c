@@ -209,16 +209,21 @@ process_exec (void *f_name) {
 
 
     /* 📌 3. 유저 스택에 인자 배열 저장 (setup_stack은 우리가 직접 구현해야 함) */
-    if (!setup_stack(&_if, argv, argc)) {
-        palloc_free_page(file_name_copy);
-        return -1;
-    }
+	bool stack_ok = setup_stack(&_if, argv, argc);
+	if (!stack_ok) {
+		palloc_free_page(file_name_copy);
+		return -1;
+	}
+    // if (!setup_stack(&_if, argv, argc)) {
+    //     palloc_free_page(file_name_copy);
+    //     return -1;
+    // }
 
 	palloc_free_page (file_name_copy);
-
     
+	// 디버깅용 스택 출력
 	hex_dump(_if.rsp, _if.rsp, USER_STACK - _if.rsp, true);
-
+	
 
 	/* Start switched process. */
 	do_iret (&_if);
@@ -602,6 +607,10 @@ static bool setup_stack (struct intr_frame *if_, char **argv, int argc) {
 		while (rsp % 8 != 0) {
 			rsp--;					// 8의 배수가 돨 때 까지 스택 포인터 감소
 		}
+
+		// NULL sentinel 추가 (argv[argc] = NULL 역할)
+		rsp -= 8;
+		*(uint64_t *) rsp = 0;
 
 		// 문자열 주소들을 역순으로 push, argv[] 배열 구성
 		for (int i = argc - 1; i >= 0; i--) {
