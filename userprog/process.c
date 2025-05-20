@@ -30,6 +30,7 @@ static bool load (const char *file_name, struct intr_frame *if_);
 static void initd (void *f_name);
 static void __do_fork (void *);
 static bool argument_stack(struct intr_frame *if_);
+static bool is_valid_addr(uintptr_t rsp);
 
 /* General process initializer for initd and other process. */
 static void
@@ -172,6 +173,7 @@ process_exec (void *f_name) {
 	char *file_name;
 	strlcpy(file_name, f_name, strlen(f_name)+1);
 	bool success;
+	bool res;
 
 	/* Parse file_name into command line and arguments */
 	char *argv[ARGUMENT_LIMIT];
@@ -203,7 +205,9 @@ process_exec (void *f_name) {
 	/* And then load the binary */
 	success = load (file_name, &_if); // Pass the program name to load()
 
-	argument_stack(&_if);
+	res = argument_stack(&_if);
+	if (!res)
+		return -1;
 	_if.R.rsi = _if.rsp + sizeof(uintptr_t);
 	// hex_dump(_if.rsp, _if.rsp, USER_STACK - (uint64_t)_if.rsp, true); // for debugging user stack
 
@@ -676,32 +680,40 @@ static bool argument_stack(struct intr_frame *if_) {
 	for (int i = argc-1; i >= 0; i--) {
 		size_t len = strlen(*(argv + i)) + 1; // strlen은 '\0'을 세지 않기 때문에 +1 해줌
 		if_->rsp -= len;
-		if ((uint64_t)if_->rsp < STACK_BOTTOM)
+		if (!is_valid_addr(if_->rsp))
 			return false;
 		memcpy(if_->rsp, *(argv + i), len);
 		addrs[i] = if_->rsp;
 	}
+
 	/* 2. Push word-align */
 	while ((uint64_t)if_->rsp % 8 != 0)
 		if_->rsp--;
-		if ((uint64_t)if_->rsp < STACK_BOTTOM)
+		if (!is_valid_addr(if_->rsp))
 			return false;
+	
 	/* 3. Push argv[argc] */
 	uintptr_t zero = 0;
 	if_->rsp -= sizeof(uintptr_t);
 	memcpy(if_->rsp, &zero, sizeof(uintptr_t));
+
 	/* 4. Push argv (pointers) */
 	for (int i = argc-1; i >= 0; i--) {
 		if_->rsp -= sizeof(char *);
-		if ((uint64_t)if_->rsp < STACK_BOTTOM)
+		if (!is_valid_addr(if_->rsp))
 			return false;
     	memcpy(if_->rsp, &addrs[i], sizeof(char *));
 	}
+
 	/* 5. Push fake return address */
 	if_->rsp -= sizeof(uintptr_t);
-	if ((uint64_t)if_->rsp < STACK_BOTTOM)
+	if (!is_valid_addr(if_->rsp))
 		return false;
 	memcpy(if_->rsp, &zero, sizeof(uintptr_t));
 
 	return true;
+}
+
+static bool is_valid_addr(uintptr_t rsp) {
+	return (uint64_t)rsp >= STACK_BOTTOM;
 }
