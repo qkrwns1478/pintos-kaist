@@ -22,6 +22,7 @@
 #include "vm/vm.h"
 #endif
 
+static bool setup_stack (struct intr_frame *if_, char **argv, int argc);
 static void process_cleanup (void);
 static bool load (const char *file_name, struct intr_frame *if_);
 static void initd (void *f_name);
@@ -204,14 +205,20 @@ process_exec (void *f_name) {
 		return -1;
 	}
 
-
-
-
-
 	/* If load failed, quit. */
+
+
+    /* 📌 3. 유저 스택에 인자 배열 저장 (setup_stack은 우리가 직접 구현해야 함) */
+    if (!setup_stack(&_if, argv, argc)) {
+        palloc_free_page(file_name_copy);
+        return -1;
+    }
+
 	palloc_free_page (file_name_copy);
-	if (!success)
-		return -1;
+
+    
+	hex_dump(_if.rsp, _if.rsp, USER_STACK - _if.rsp, true);
+
 
 	/* Start switched process. */
 	do_iret (&_if);
@@ -339,7 +346,6 @@ struct ELF64_PHDR {
 #define ELF ELF64_hdr
 #define Phdr ELF64_PHDR
 
-static bool setup_stack (struct intr_frame *if_);
 static bool validate_segment (const struct Phdr *, struct file *);
 static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		uint32_t read_bytes, uint32_t zero_bytes,
@@ -437,8 +443,8 @@ load (const char *file_name, struct intr_frame *if_) {
 	}
 
 	/* Set up stack. */
-	if (!setup_stack (if_))
-		goto done;
+	// if (!setup_stack (if_))
+	// 	goto done;
 
 	/* Start address. */
 	if_->rip = ehdr.e_entry;
@@ -564,8 +570,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 }
 
 /* Create a minimal stack by mapping a zeroed page at the USER_STACK */
-static bool
-setup_stack (struct intr_frame *if_, char **argv, int argc) {
+static bool setup_stack (struct intr_frame *if_, char **argv, int argc) {
 	uint8_t *kpage; // 유저 스택으로 사용할 커널 페이지 포인터
 	bool success = false; // 페이지 설치 성공 여부 플래그
 
@@ -586,7 +591,7 @@ setup_stack (struct intr_frame *if_, char **argv, int argc) {
 
 	// 각 문자열을 역순으로 스택에 push 하고, 그 주소를 기록
 	char *arg_addrs[argc];						// 각 인자의 유저 스택 내 주소를 저장할 배열
-		for (int i = argc =1; i >= 0; i--) {
+		for (int i = argc - 1; i >= 0; i--) {
 			int len = strlen(argv[i]) + 1;		// 문자열 길이(NULL 문자 포함)
 			rsp -= len;							// 스택에서 문자열 길이 만큼 공간 확보
 			memcpy((void *) rsp, argv[i], len); // 해당 주소에 문자열 복사
@@ -599,7 +604,7 @@ setup_stack (struct intr_frame *if_, char **argv, int argc) {
 		}
 
 		// 문자열 주소들을 역순으로 push, argv[] 배열 구성
-		for (int i = argc - 1; 1 >= 0; i--) {
+		for (int i = argc - 1; i >= 0; i--) {
 			rsp -= 8;
 			*(uint64_t *) rsp = (uint64_t) arg_addrs[i]; // 각 문자열의 유저 주소 push
 		}
@@ -632,7 +637,7 @@ setup_stack (struct intr_frame *if_, char **argv, int argc) {
 	// 		palloc_free_page (kpage);
 	// }
 	// return success;
-	
+
 }
 
 /* Adds a mapping from user virtual address UPAGE to kernel
@@ -707,17 +712,17 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 	return true;
 }
 
-/* Create a PAGE of stack at the USER_STACK. Return true on success. */
-static bool
-setup_stack (struct intr_frame *if_) {
-	bool success = false;
-	void *stack_bottom = (void *) (((uint8_t *) USER_STACK) - PGSIZE);
+// /* Create a PAGE of stack at the USER_STACK. Return true on success. */
+// static bool
+// setup_stack (struct intr_frame *if_) {
+// 	bool success = false;
+// 	void *stack_bottom = (void *) (((uint8_t *) USER_STACK) - PGSIZE);
 
-	/* TODO: Map the stack on stack_bottom and claim the page immediately.
-	 * TODO: If success, set the rsp accordingly.
-	 * TODO: You should mark the page is stack. */
-	/* TODO: Your code goes here */
+// 	/* TODO: Map the stack on stack_bottom and claim the page immediately.
+// 	 * TODO: If success, set the rsp accordingly.
+// 	 * TODO: You should mark the page is stack. */
+// 	/* TODO: Your code goes here */
 
-	return success;
-}
+// 	return success;
+// }
 #endif /* VM */
