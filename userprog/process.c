@@ -107,10 +107,10 @@ process_create_initd (const char *file_name) { // initd를 실행하는 함수
 	strlcpy (fn_copy, file_name, PGSIZE);
 
 	/* Create a new thread to execute FILE_NAME. */
-	tid = thread_create (file_name, PRI_DEFAULT, initd, fn_copy);
-	if (tid == TID_ERROR)
-		palloc_free_page (fn_copy);
-	return tid;
+	tid = thread_create (file_name, PRI_DEFAULT, initd, fn_copy); // 스레드 생성
+	if (tid == TID_ERROR) // 스레드 생성 실패 시
+		palloc_free_page (fn_copy); // 할당된 페이지 해제
+	return tid; // 스레드 ID 반환
 }
 
 /* A thread function that launches first user process. */
@@ -130,7 +130,7 @@ initd (void *f_name) {
 /* Clones the current process as `name`. Returns the new process's thread id, or
  * TID_ERROR if the thread cannot be created. */
 tid_t
-process_fork (const char *name, struct intr_frame *if_ UNUSED) {
+process_fork (const char *name, struct intr_frame *if_ UNUSED) { // fork()를 수행하는 함수 | fork? : 부모 프로세스의 메모리 공간을 복사하여 자식 프로세스를 생성하는 시스템 콜 | 언제 사용하는가? : 귀찮은 작업을 반복하지 않기 위해서
 	/* Clone current thread to new thread.*/
 	return thread_create (name, PRI_DEFAULT, __do_fork, thread_current ());
 }
@@ -138,32 +138,42 @@ process_fork (const char *name, struct intr_frame *if_ UNUSED) {
 #ifndef VM
 /* Duplicate the parent's address space by passing this function to the
  * pml4_for_each. This is only for the project 2. */
+sstatic bool
 static bool
-duplicate_pte (uint64_t *pte, void *va, void *aux) {
-	struct thread *current = thread_current ();
-	struct thread *parent = (struct thread *) aux;
-	//void *parent_page;
-	void *newpage;
-	bool writable;
+duplicate_pte(uint64_t *pte, void *va, void *aux)
+{
+	struct thread *current = thread_current();               // 현재 실행 중인 스레드 (자식 프로세스)
+	struct thread *parent = (struct thread *)aux;            // 부모 프로세스
+	void *parent_page;                                       // 부모 페이지의 실제 주소
+	void *newpage;                                           // 자식에게 할당할 새로운 페이지
+	bool writable;                                           // 쓰기 가능 여부
 
-	/* 1. TODO: If the parent_page is kernel page, then return immediately. */
+	/* 1. 부모의 가상 주소가 커널 영역일 경우 무시하고 건너뜀 (사용자 영역만 복사 대상) */
+	if (is_kernel_vaddr(va))
+		return true;
 
-	/* 2. Resolve VA from the parent's page map level 4. */
-	//parent_page = pml4_get_page (parent->pml4, va);
+	/* 2. 부모 페이지 테이블에서 해당 가상 주소(va)에 매핑된 실제 물리 주소 가져오기 */
+	parent_page = pml4_get_page(parent->pml4, va);
+	if (parent_page == NULL)
+		return false;  // 매핑이 안 되어 있으면 실패
 
-	/* 3. TODO: Allocate new PAL_USER page for the child and set result to
-	 *    TODO: NEWPAGE. */
+	/* 3. 자식 프로세스를 위한 사용자 페이지 할당 */
+	newpage = palloc_get_page(PAL_USER);
+	if (newpage == NULL)
+		return false;  // 페이지 할당 실패 시 종료
 
-	/* 4. TODO: Duplicate parent's page to the new page and
-	 *    TODO: check whether parent's page is writable or not (set WRITABLE
-	 *    TODO: according to the result). */
+	/* 4. 부모의 물리 페이지 내용을 자식의 새 페이지에 복사하고, 쓰기 권한 확인 */
+	memcpy(newpage, parent_page, PGSIZE);             // 페이지 전체 복사
+	writable = (*pte & PTE_W) != 0;                   // PTE_W 플래그로 쓰기 권한 확인
 
-	/* 5. Add new page to child's page table at address VA with WRITABLE
-	 *    permission. */
-	if (!pml4_set_page (current->pml4, va, newpage, writable)) {
-		/* 6. TODO: if fail to insert page, do error handling. */
+	/* 5. 자식 프로세스의 페이지 테이블에 해당 가상 주소(va)에 새 페이지 매핑 */
+	if (!pml4_set_page(current->pml4, va, newpage, writable)) {
+		/* 6. 매핑 실패 시 자원 회수 후 종료 */
+		palloc_free_page(newpage);
+		return false;
 	}
-	return true;
+
+	return true;  // 성공적으로 복사 및 매핑 완료
 }
 #endif
 
