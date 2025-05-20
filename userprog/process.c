@@ -692,8 +692,6 @@ static bool argument_stack(struct intr_frame *if_) {
 	memcpy(if_->rsp, &zero, sizeof(uintptr_t));
 	/* 4. Push argv (pointers) */
 	for (int i = argc-1; i >= 0; i--) {
-		// if_->rsp -= sizeof(uintptr_t);
-		// memcpy(if_->rsp, (argv + i), sizeof(uintptr_t));
 		if_->rsp -= sizeof(char *);
 		if ((uint64_t)if_->rsp < STACK_BOTTOM)
 			return false;
