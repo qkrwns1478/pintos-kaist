@@ -212,13 +212,6 @@ thread_create (const char *name, int priority, thread_func *function, void *aux)
 	t->tf.cs = SEL_KCSEG;
 	t->tf.eflags = FLAG_IF;
 
-	/* Stack frame for kernel_thread() */
-	// struct kernel_thread_frame *kf;
-	// kf = alloc_frame(t, sizeof *kf); // allocate stack
-	// kf->eip = NULL;
-	// kf->function = function; // function to run
-	// kf->aux = aux; // parameters for the function to run
-
 	/* Add to run queue. */
 	thread_unblock (t); // Insert thread in ready_list in the order of priority
 
@@ -467,6 +460,9 @@ next_thread_to_run (void) {
 }
 
 /* Use iretq to launch the thread */
+/* 1. Restoring registers: intr_frame에 저장된 레지스터를 다시 로딩
+ * 2. Reconstructinf stack: 스택 포인터를 유저 모드 스택으로 전환
+ * 3. Change CPU mode: iretq 인스트럭션으로 유저 모드로 점프 */ 
 void
 do_iret (struct intr_frame *tf) {
 	__asm __volatile(

@@ -169,7 +169,8 @@ error:
  * Returns -1 on fail. */
 int
 process_exec (void *f_name) {
-	char *file_name = f_name;
+	char *file_name;
+	strlcpy(file_name, f_name, strlen(f_name)+1);
 	bool success;
 
 	/* Parse file_name into command line and arguments */
@@ -203,7 +204,8 @@ process_exec (void *f_name) {
 	success = load (file_name, &_if); // Pass the program name to load()
 
 	argument_stack(&_if);
-	hex_dump(_if.rsp, _if.rsp, USER_STACK - (uint64_t)_if.rsp, true); // for debugging user stack
+	_if.R.rsi = _if.rsp + sizeof(uintptr_t);
+	// hex_dump(_if.rsp, _if.rsp, USER_STACK - (uint64_t)_if.rsp, true); // for debugging user stack
 
 	/* If load failed, quit. */
 	palloc_free_page (file_name);
@@ -211,7 +213,7 @@ process_exec (void *f_name) {
 		return -1;
 
 	/* Start switched process. */
-	do_iret (&_if); // asm volatile blabla
+	do_iret (&_if); // Change the mode of user program: user mode ←→ kernel mode
 	NOT_REACHED ();
 }
 

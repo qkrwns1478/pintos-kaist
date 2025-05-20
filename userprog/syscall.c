@@ -41,16 +41,15 @@ syscall_init (void) {
 void
 syscall_handler (struct intr_frame *f UNUSED) {
 	// TODO: Your implementation goes here.
-	printf ("system call!\n");
-	thread_exit ();
+	// printf ("system call!\n");
+	// thread_exit ();
 
-	// int number = (int)f->R.rax;
-	// switch(number) {
-	// 	case SYS_HALT:                   /* Halt the operating system. */
-	// 		halt();
+	switch(f->R.rax) {
+		case SYS_HALT:                   /* Halt the operating system. */
+			halt();
 	// 		break;
-	// 	case SYS_EXIT:                   /* Terminate this process. */
-	// 		exit(0);
+		case SYS_EXIT:                   /* Terminate this process. */
+			exit(f->R.rdi);
 	// 		break;
 	// 	case SYS_FORK:                   /* Clone current process. */
 	// 		// break;
@@ -68,28 +67,38 @@ syscall_handler (struct intr_frame *f UNUSED) {
 	// 		// break;
 	// 	case SYS_READ:                   /* Read from a file. */
 	// 		// break;
-	// 	case SYS_WRITE:                  /* Write to a file. */
-	// 		// break;
+		case SYS_WRITE:                  /* Write to a file. */
+			printf("%s", f->R.rsi);
+			// f->R.rax = write(f->R.rdi, f->R.rsi, f->R.rdx);
+			break;
 	// 	case SYS_SEEK:                   /* Change position in a file. */
 	// 		// break;
 	// 	case SYS_TELL:                   /* Report current position in a file. */
 	// 		// break;
 	// 	case SYS_CLOSE:                  /* Close a file. */
 	// 		// break;
-	// 	default:
-	// 		printf("undefined system call(%d)\n", number);
-	// 		exit(1);
-	// 		break;
-	// }
+		default:
+			printf("undefined system call(%d)\n", f->R.rax);
+			exit(1);
+			break;
+	}
 }
 
 void halt (void) {
-	// shutdown_power_off();
+	power_off();
 }
 
 void exit(int status) {
-	struct thread *curr = thread_current (); 
-    /* Save exit status at process descriptor */
-    printf("%s: exit(%d)\n" , curr->name , status);
+    printf("%s: exit(%d)\n", thread_current()->name , status);
 	thread_exit();
+}
+
+int write(int fd, const void *buffer, unsigned size) {
+	if(fd == 1) {
+		putbuf(&buffer, size);
+		return size;
+	} else {
+		printf("Let's write!\n");
+		return size;
+	}
 }
