@@ -4,6 +4,8 @@
 #include <list.h>
 #include <stdbool.h>
 
+bool cmp_sema_priority(const struct list_elem *a, const struct list_elem *b, void *aux);
+
 /* A counting semaphore. */
 struct semaphore {
 	unsigned value;             /* Current value. */
@@ -37,6 +39,8 @@ void cond_init (struct condition *);
 void cond_wait (struct condition *, struct lock *);
 void cond_signal (struct condition *, struct lock *);
 void cond_broadcast (struct condition *, struct lock *);
+
+bool cond_sema_priority_cmp(const struct list_elem *, const struct list_elem *, void *);
 
 /* Optimization barrier.
  *
