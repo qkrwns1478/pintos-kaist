@@ -225,33 +225,104 @@ error:
 /* Switch the current execution context to the f_name.
  * Returns -1 on fail. */
  int
- process_exec (void *f_name) {
-	 char *file_name = f_name;
-	 bool success;
- 
-	 /* We cannot use the intr_frame in the thread structure.
-	  * This is because when current thread rescheduled,
-	  * it stores the execution information to the member. */
-	 struct intr_frame _if;
-	 _if.ds = _if.es = _if.ss = SEL_UDSEG;
-	 _if.cs = SEL_UCSEG;
-	 _if.eflags = FLAG_IF | FLAG_MBS;
- 
-	 /* We first kill the current context */
-	 process_cleanup ();
- 
-	 /* And then load the binary */
-	 success = load (file_name, &_if);
- 
-	 /* If load failed, quit. */
-	 palloc_free_page (file_name);
-	 if (!success)
-		 return -1;
- 
-	 /* Start switched process. */
-	 do_iret (&_if);
-	 NOT_REACHED ();
- }
+process_exec(void *f_name) {
+	char *file_name = f_name;
+	bool success;
+
+	/* 1. 커맨드 파싱용 버퍼 복사 (file_name 파괴 방지) */
+	char *fn_copy = palloc_get_page(0);
+	if (fn_copy == NULL)
+		return -1;
+	strlcpy(fn_copy, file_name, PGSIZE);
+
+	/* 2. 인자 파싱 (argc, argv 구성) */
+	char *argv[64];
+	int argc = 0;
+	char *token, *save_ptr;
+	for (token = strtok_r(fn_copy, " ", &save_ptr); token != NULL;
+		 token = strtok_r(NULL, " ", &save_ptr)) {
+		argv[argc++] = token;
+	}
+	argv[argc] = NULL;
+	file_name = argv[0]; // 실행할 프로그램 이름
+
+	/* 3. 현재 프로세스의 실행 컨텍스트 제거 */
+	process_cleanup();
+
+	/* 4. 유저 프로그램 로드 */
+	struct intr_frame _if;
+	memset(&_if, 0, sizeof _if);
+	_if.ds = _if.es = _if.ss = SEL_UDSEG;
+	_if.cs = SEL_UCSEG;
+	_if.eflags = FLAG_IF | FLAG_MBS;
+
+	success = load(file_name, &_if);
+	if (!success) {
+		palloc_free_page(fn_copy);
+		return -1;
+	}
+
+	/* 5. 유저 스택에 인자 세팅 */
+	void *rsp = (void *)_if.rsp;
+	if (!argument_stack(argv, argc, &rsp)) {
+		palloc_free_page(fn_copy);
+		return -1;
+	}
+	_if.rsp = (uintptr_t)rsp;
+
+	/* 6. rdi = argc, rsi = argv 주소 설정 */
+	_if.R.rdi = argc;
+	_if.R.rsi = (uintptr_t)(rsp + 8); // argv[0]의 주소 (스택 구조 상 그 위치)
+
+	/* 7. 메모리 정리 및 전환 */
+	palloc_free_page(fn_copy);
+	do_iret(&_if); // 유저 모드로 진입
+	NOT_REACHED();
+}
+
+bool
+argument_stack(char **argv, int argc, void **rsp) {
+	char *arg_start[64];
+
+	/* 1. 문자열 복사 */
+	for (int i = argc - 1; i >= 0; i--) {
+		int len = strlen(argv[i]) + 1;
+		*rsp -= len;
+		memcpy(*rsp, argv[i], len);
+		arg_start[i] = *rsp;
+	}
+
+	/* 2. word-align (8바이트 정렬) */
+	uintptr_t align = (uintptr_t)*rsp % 8;
+	if (align)
+		*rsp -= align;
+
+	/* 3. NULL sentinel */
+	*rsp -= sizeof(char *);
+	memset(*rsp, 0, sizeof(char *));
+
+	/* 4. argv[i] 포인터 push */
+	for (int i = argc - 1; i >= 0; i--) {
+		*rsp -= sizeof(char *);
+		memcpy(*rsp, &arg_start[i], sizeof(char *));
+	}
+
+	/* 5. argv 포인터 push */
+	char **argv_addr = *rsp;
+	*rsp -= sizeof(char **);
+	memcpy(*rsp, &argv_addr, sizeof(char **));
+
+	/* 6. argc push */
+	*rsp -= sizeof(int);
+	memcpy(*rsp, &argc, sizeof(int));
+
+	/* 7. fake return address */
+	*rsp -= sizeof(void *);
+	memset(*rsp, 0, sizeof(void *));
+
+	return true;
+}
+
 
 /* Waits for thread TID to die and returns its exit status.  If
  * it was terminated by the kernel (i.e. killed due to an
