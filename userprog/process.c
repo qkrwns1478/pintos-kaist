@@ -130,7 +130,7 @@ initd (void *f_name) {
 /* Clones the current process as `name`. Returns the new process's thread id, or
  * TID_ERROR if the thread cannot be created. */
 tid_t
-process_fork (const char *name, struct intr_frame *if_ UNUSED) { // fork()를 수행하는 함수 | fork? : 부모 프로세스의 메모리 공간을 복사하여 자식 프로세스를 생성하는 시스템 콜 | 언제 사용하는가? : 귀찮은 작업을 반복하지 않기 위해서
+process_fork (const char *name, struct intr_frame *if_ UNUSED) { // fork()를 수행하는 함수 | fork? : 부모 프로세스의 메모리 공간을 복사하여 자식 프로세스를 생성하는 시스템 콜 | 언제 사용하는가? : 귀찮은 작업 반복을 방지할 때
 	/* Clone current thread to new thread.*/
 	return thread_create (name, PRI_DEFAULT, __do_fork, thread_current ());
 }
@@ -138,7 +138,6 @@ process_fork (const char *name, struct intr_frame *if_ UNUSED) { // fork()를 �
 #ifndef VM
 /* Duplicate the parent's address space by passing this function to the
  * pml4_for_each. This is only for the project 2. */
-sstatic bool
 static bool
 duplicate_pte(uint64_t *pte, void *va, void *aux)
 {
@@ -225,36 +224,34 @@ error:
 
 /* Switch the current execution context to the f_name.
  * Returns -1 on fail. */
-int
-process_exec (void *f_name) {
-	char *file_name = f_name;
-	bool success;
-
-	/* We cannot use the intr_frame in the thread structure.
-	 * This is because when current thread rescheduled,
-	 * it stores the execution information to the member. */
-	struct intr_frame _if;
-	_if.ds = _if.es = _if.ss = SEL_UDSEG;
-	_if.cs = SEL_UCSEG;
-	_if.eflags = FLAG_IF | FLAG_MBS;
-
-	/* We first kill the current context */
-	process_cleanup ();
-		struct thread *curr = thread_current ();
-
-	/* And then load the binary */
-	success = load (file_name, &_if);
-
-	/* If load failed, quit. */
-	palloc_free_page (file_name);
-	if (!success)
-		return -1;
-
-	/* Start switched process. */
-	do_iret (&_if);
-	NOT_REACHED ();
-}
-
+ int
+ process_exec (void *f_name) {
+	 char *file_name = f_name;
+	 bool success;
+ 
+	 /* We cannot use the intr_frame in the thread structure.
+	  * This is because when current thread rescheduled,
+	  * it stores the execution information to the member. */
+	 struct intr_frame _if;
+	 _if.ds = _if.es = _if.ss = SEL_UDSEG;
+	 _if.cs = SEL_UCSEG;
+	 _if.eflags = FLAG_IF | FLAG_MBS;
+ 
+	 /* We first kill the current context */
+	 process_cleanup ();
+ 
+	 /* And then load the binary */
+	 success = load (file_name, &_if);
+ 
+	 /* If load failed, quit. */
+	 palloc_free_page (file_name);
+	 if (!success)
+		 return -1;
+ 
+	 /* Start switched process. */
+	 do_iret (&_if);
+	 NOT_REACHED ();
+ }
 
 /* Waits for thread TID to die and returns its exit status.  If
  * it was terminated by the kernel (i.e. killed due to an
@@ -277,45 +274,13 @@ process_wait (tid_t child_tid UNUSED) {
 void
 process_exit (void) {
 	struct thread *curr = thread_current ();
-	
-	/* TODO: Your code goes here. */
-	lock_acquire(&process_lock);
-    list_remove(&(curr->child_elem));
-    lock_release(&process_lock);
-	
-	/* Print termination message. */
-    if (curr->run_file != NULL)
-        printf("%s: exit(%d)\n", curr->name, curr->exit_status);	/* TODO: project2/process_termination.html). */
-	
-	/* TODO: We recommend you to implement process resource cleanup here. */
+
+	/* Print termination message */
+	if (curr->run_file != NULL)
+		printf("%s: exit(%d)\n", curr->name, curr->exit_status);
+
+	/* Clean up resources */
 	process_cleanup ();
-}
-
-/* Free the current process's resources. */
-static void
-process_cleanup (void) {
-	struct thread *curr = thread_current ();
-
-#ifdef VM
-	supplemental_page_table_kill (&curr->spt);
-#endif
-
-	uint64_t *pml4;
-	/* Destroy the current process's page directory and switch back
-	 * to the kernel-only page directory. */
-	pml4 = curr->pml4;
-	if (pml4 != NULL) {
-		/* Correct ordering here is crucial.  We must set
-		 * cur->pagedir to NULL before switching page directories,
-		 * so that a timer interrupt can't switch back to the
-		 * process page directory.  We must activate the base page
-		 * directory before destroying the process's page
-		 * directory, or our active page directory will be one
-		 * that's been freed (and cleared). */
-		curr->pml4 = NULL;
-		pml4_activate (NULL);
-		pml4_destroy (pml4);
-	}
 }
 
 /* Sets up the CPU for running user code in the nest thread.
