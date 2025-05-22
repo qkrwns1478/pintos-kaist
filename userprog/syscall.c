@@ -1,4 +1,5 @@
 #include "userprog/syscall.h"
+#include "userprog/process.h"
 #include <stdio.h>
 #include <syscall-nr.h>
 #include "threads/interrupt.h"
@@ -8,6 +9,7 @@
 #include "threads/flags.h"
 #include "intrinsic.h"
 #include "filesys/file.h"
+#include "filesys/filesys.h"
 #include "threads/vaddr.h"
 #include "threads/synch.h"
 
@@ -119,33 +121,17 @@ pid_t fork (const char *thread_name) {
 	템플릿은 대응하는 페이지 테이블 구조를 포함한 전체 유저 메모리 공간을 복사하는데 pml4_for_each()를 사용하지만,
 	pte_for_each_func의 빠진 부분을 채워야 한다. */
 
-	char *fn_copy;
-	pid_t pid;
-	if (thread_name == NULL) exit(-1);
+	if (!is_valid(thread_name)) exit(-1);
 	struct intr_frame if_;
-	struct thread *curr = thread_current();
-	if_.R.rbx = curr->tf.R.rbx;
-	if_.rsp = curr->tf.rsp;
-	if_.R.rbp = curr->tf.R.rbp;
-	if_.R.r12 = curr->tf.R.r12;
-	if_.R.r13 = curr->tf.R.r13;
-	if_.R.r14 = curr->tf.R.r14;
-	if_.R.r15 = curr->tf.R.r15;
-	pid = process_fork(thread_name, &if_);
-	if (pid < 0) return TID_ERROR;
-	else if (pid == 0) { // child
-	}
-	else { // parent
-	}
-	// curr->tf.R.rbx = if_.R.rbx;
-	// curr->tf.rsp = if_.rsp;
-	// curr->tf.R.rbp = if_.R.rbp;
-	// curr->tf.R.r12 = if_.R.r12;
-	// curr->tf.R.r13 = if_.R.r13;
-	// curr->tf.R.r14 = if_.R.r14;
-	// curr->tf.R.r15 = if_.R.r15;
-	
-	return pid;
+	// struct thread *curr = thread_current();
+	// if_.R.rbx = curr->tf.R.rbx;
+	// if_.rsp = curr->tf.rsp;
+	// if_.R.rbp = curr->tf.R.rbp;
+	// if_.R.r12 = curr->tf.R.r12;
+	// if_.R.r13 = curr->tf.R.r13;
+	// if_.R.r14 = curr->tf.R.r14;
+	// if_.R.r15 = curr->tf.R.r15;
+	return process_fork(thread_name, &if_);
 }
 
 /* Create child process and execute program corresponds to cmd_file on it. */
@@ -156,6 +142,7 @@ int exec (const char *cmd_line) {
 	(주의) 파일 디스크립터는 exec가 호출된 이후에도 열려있다. */
 
 	if (!is_valid(cmd_line)) exit(-1);
+	return process_exec(cmd_line);
 }
 
 /* Wait for termination of child process whose process id is pid. */
@@ -179,6 +166,7 @@ int wait (pid_t pid) {
 	최초의 프로세가 exit할 때까지는 핀토스가 종료되서는 안 된다. 제공된 핀토스는 main()에서 process_wait()를 호출해서 이 조건을 지키려고 한다. 
 	process_wait()를 먼저 구현하고, process_wait()에 따라 wait 시스템 콜을 구현해 보자. */
 
+	return process_wait(pid);
 }
 
 /* Create file which have size of initial_size. */
@@ -227,7 +215,7 @@ int open (const char *filename) {
 			break;
 		}
 	}
-	if (!is_not_full) return -1;
+	if (!is_not_full) return -1; // Return -1 if fdt is full
 
 	lock_acquire(&filesys_lock);
 	struct file *file = filesys_open(filename);
@@ -245,11 +233,6 @@ int filesize (int fd) {
 	if (fd < 2 || fd > 63) exit(-1); // invalid fd
 	struct file *file = thread_current()->fdt[fd];
 	if (file == NULL) exit(-1);
-	
-	// if (!is_kernel_vaddr(file)) {
-	// 	printf("[FILESIZE] Invalid kernel ptr at fd=%d: %p\n", fd, file);
-	// 	exit(-1);
-	// }
 
 	lock_acquire(&filesys_lock);
 	off_t res = file_length(file);
