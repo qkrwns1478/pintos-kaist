@@ -8,7 +8,7 @@
 #ifdef VM
 #include "vm/vm.h"
 #endif
-#define USERPROG true // for debugging
+// #define USERPROG true // for debugging
 
 /* States in a thread's life cycle. */
 enum thread_status {
@@ -122,7 +122,9 @@ struct thread {
 
 	/* File Descriptor Table */
 	struct file *fdt[64];				/* List of pointer to struct file */
-	int next_fd;						/* Should be between 2 and 63 */
+	// int next_fd;						/* Should be between 2 and 63 */
+	
+	int exit_status;
 #endif
 #ifdef VM
 	/* Table for whole virtual memory owned by thread. */
