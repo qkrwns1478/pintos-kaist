@@ -249,6 +249,12 @@ process_exit (void) {
 	 * TODO: Implement process termination message (see
 	 * TODO: project2/process_termination.html).
 	 * TODO: We recommend you to implement process resource cleanup here. */
+	// for (int fd = 2; fd < 64; fd++) {
+	// 	if (curr->fdt[fd] != NULL) {
+	// 		file_close(curr->fdt[fd]);
+	// 		curr->fdt[fd] = NULL;
+	// 	}
+	// }
 
 	process_cleanup ();
 }
