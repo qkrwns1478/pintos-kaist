@@ -298,7 +298,7 @@ process_wait (tid_t child_tid UNUSED) {
 	// 		return child->exit_status; // return child's exit status
 	// 	}
 	// }
-	// return -1;
+	return -1;
 }
 
 /* Exit the process. This function is called by thread_exit (). */
