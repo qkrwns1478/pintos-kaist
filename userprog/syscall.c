@@ -49,7 +49,6 @@ syscall_init (void) {
 /* The main system call interface */
 void
 syscall_handler (struct intr_frame *f UNUSED) {
-	// printf("[SYSCALL] syscall number: %ld\n", f->R.rax);
 	switch(f->R.rax) {
 		case SYS_HALT:                   /* Halt the operating system. */
 			halt();
@@ -58,11 +57,13 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			exit(f->R.rdi);
 			break;
 		case SYS_FORK:                   /* Clone current process. */
-			f->R.rax = fork(f->R.rdi);
+			f->R.rax = fork(f->R.rdi, f);
 			break;
 		case SYS_EXEC:                   /* Switch current process. */
+			// f->R.rax = exec(f->R.rdi);
 			break;
 		case SYS_WAIT:                   /* Wait for a child process to die. */
+			// f->R.rax = wait(f->R.rdi);
 			break;
 		case SYS_CREATE:                 /* Create a file. */
 			f->R.rax = create(f->R.rdi, f->R.rsi);
@@ -110,7 +111,7 @@ void exit(int status) {
 }
 
 /* Create new process which is the clone of current process with the name THREAD_NAME. */
-pid_t fork (const char *thread_name) {
+pid_t fork (const char *thread_name, struct intr_frame *if_) {
 	/* THREAD_NAME이라는 이름으로 현재 프로세스의 복사본을 생성한다.
 	피호출자가 저장한 레지스터인 %RBX, %RSP, %RBP, %R12 - %R15는 반드시 그 값을 복사해야 하지만, 나머지는 그럴 필요는 없다.
 	자식 프로세스의 pid를 리턴해야만 하며, 그렇지 않은 경우 유효한 pid를 가지면 안 된다.
@@ -122,16 +123,7 @@ pid_t fork (const char *thread_name) {
 	pte_for_each_func의 빠진 부분을 채워야 한다. */
 
 	if (!is_valid(thread_name)) exit(-1);
-	struct intr_frame if_;
-	// struct thread *curr = thread_current();
-	// if_.R.rbx = curr->tf.R.rbx;
-	// if_.rsp = curr->tf.rsp;
-	// if_.R.rbp = curr->tf.R.rbp;
-	// if_.R.r12 = curr->tf.R.r12;
-	// if_.R.r13 = curr->tf.R.r13;
-	// if_.R.r14 = curr->tf.R.r14;
-	// if_.R.r15 = curr->tf.R.r15;
-	return process_fork(thread_name, &if_);
+	return process_fork(thread_name, if_);
 }
 
 /* Create child process and execute program corresponds to cmd_file on it. */
@@ -142,6 +134,7 @@ int exec (const char *cmd_line) {
 	(주의) 파일 디스크립터는 exec가 호출된 이후에도 열려있다. */
 
 	if (!is_valid(cmd_line)) exit(-1);
+
 	return process_exec(cmd_line);
 }
 
@@ -153,8 +146,8 @@ int wait (pid_t pid) {
 	부모 프로세스가 wait을 호출했을 때 이미 종료된 자식 프로세스를 기다릴 수도 있다. 
 	하지만 커널은 여전히 부모가 자식의 종료 상태를 회수하거나 자식이 커널에 의해 종료되었음을 알도록 해야 한다.
 	다음과 같은 조건들이 참인 경우 wait은 즉시 실패하고 -1을 리턴해야 한다:
-		- pid가 호출한 프로세스의 직계 자식direct child을 참조하지 않는 경우:
-			호출한 프로세스가 fork를 성공적으로 호출했을 때 pid를 리턴값으로 받을 때, pid는 호출한 프로세스의 직계 자식이다.
+		- pid가 호출한 프로세스의 direct child를 참조하지 않는 경우:
+			호출한 프로세스가 fork를 성공적으로 호출했을 때 pid를 리턴값으로 받을 때, pid는 호출한 프로세스의 direct child이다.
 			A가 자식 B를 만들고, B가 자식 C를 만들면, A는 B가 죽어도 C를 wait할 수 없다는 점에서 자식은 상속되지 않는다.
 			A에 의한 wait(C)는 실패해야 한다.
 			비슷하게, 고아 프로세스들은 그들의 부모 프로세스가 (새로운 부모를 할당하기 전에) 종료한다면 새로운 부모를 가질 수 없다.
@@ -171,8 +164,6 @@ int wait (pid_t pid) {
 
 /* Create file which have size of initial_size. */
 bool create (const char *file, unsigned initial_size) {
-	/* initial_size 크기의 file이라는 파일을 생성한다. 성공하면 true, 실패하면 false를 반환한다. */
-
 	// if (!is_user_vaddr(file)) exit(-1);
 	// if (!pml4_get_page(thread_current()->pml4, file)) exit(-1);
 	// if (file == NULL) exit(-1);
@@ -185,10 +176,6 @@ bool create (const char *file, unsigned initial_size) {
 
 /* Remove file whose name is file. */
 bool remove (const char *file) {
-	/* file이라는 파일을 삭제한다. 성공하면 true, 실패하면 false를 반환한다.
-	파일이 열려 있는지 아닌지와는 상관없이 파일이 삭제되고, 
-	열린 파일을 삭제하는 것이 그것을 닫지는 않는다. */
-
 	if (!is_valid(file)) exit(-1);
 	lock_acquire(&filesys_lock);
 	bool res = filesys_remove(file);
@@ -198,13 +185,6 @@ bool remove (const char *file) {
 
 /* Open the file corresponds to path in "file". */
 int open (const char *filename) {
-	/* file이라는 파일을 연다. 성공하면 0 이상의 파일 디스크립터(fd) 값, 실패하면 -1을 리턴한다.
-	파일 디스크립터 값 중 0은 표준 입력(STDIN_FILENO)에, 1은 표준 출력(STDOUT_FILENO)에 예약되어 있기 때문에 여기서는 0과 1을 리턴하지 않는다.
-	각 프로세스는 파일 디스크립터의 독립적인 세트를 가지고 있고, 파일 디스크립터는 자식 프로세스로 상속된다.
-	단일 프로세스로거나 다른 프로세스로거나에 관계 없이 단일 파일이 2번 이상 열리면 각각 새로운 파일 디스크립터를 리턴한다.
-	단일 파일에 대한 다른 파일 디스크립터들은 각각 개별적인 close 호출에 의해 닫히고 서로 파일 위치를 공유하지 않는다.
-	추가 작업을 하려면, 0부터 시작하는 정수를 리턴하는 Linux 방식을 따라야 한다. */
-
 	if (!is_valid(filename)) exit(-1);
 	struct thread *curr = thread_current();
 	int fd;
@@ -228,8 +208,6 @@ int open (const char *filename) {
 
 /* Return the size, in bytes, of the file open as fd. */
 int filesize (int fd) {
-	/* fd로 열린 파일의 사이즈를 바이트 단위로 리턴한다. */
-
 	if (fd < 2 || fd > 63) exit(-1); // invalid fd
 	struct file *file = thread_current()->fdt[fd];
 	if (file == NULL) exit(-1);
@@ -242,10 +220,6 @@ int filesize (int fd) {
 
 /* Read size bytes from the file open as fd into buffer. */
 int read (int fd, void *buffer, unsigned size) {
-	/* 열린 파일 fd로부터 size 바이트 만큼의 데이터를 buffer에 저장한다. 
-	실제로 read한 바이트 수(EOFend-of-file에서는 0)를 리턴하거나, 
-	EOF가 아닌 다른 이유로 파일을 읽기 실패한 경우 -1을 리턴한다. */
-
 	if (size == 0) return 0;
 	if (!is_valid(buffer)) exit(-1);
 	if (fd == 0) { // fd0 is stdin
@@ -269,13 +243,6 @@ int read (int fd, void *buffer, unsigned size) {
 
 /* Writes size bytes from buffer to the open file fd. */
 int write(int fd, const void *buffer, unsigned size) {
-	/* buffer로부터 size 바이트 만큼의 데이터를 열린 파일 fd에 저장한다. 
-	실제로 write한 바이트 수를 리턴한다 (실제로는 write되지 않는 바이트도 있어서 size보다 더 적을 수 있다).
-	이전의 EOF에 쓰는 경우 일반적으로 파일을 확장하지만, 이 기능은 기본적인 파일 시스템에 구현되어 있지 않았다. 
-	따라서 여기서는 EOF 전 까지 최대한 많이 쓰고 실제로 쓴 수를 리턴, 전혀 못 썼으면 0을 리턴한다.
-	fd 1은 콘솔에 쓰는 것이다. 
-	콘솔에 쓸 코드는 size가 수백 바이트를 넘지 않는 한 버퍼 전체를 한 번의 putbuf() 호출로 써야 한다(큰 버퍼를 나누는 것이 합리적이다). */
-
 	if (!is_valid(buffer)) exit(-1);
 	if(fd == 1) { // fd1 is stdout
 		putbuf(buffer, size);
@@ -295,11 +262,6 @@ int write(int fd, const void *buffer, unsigned size) {
 
 /* Changes the next byte to be read or written in open file fd to position. */
 void seek (int fd, unsigned position) {
-	/* 열린 파일 fd에서 position(파일 시작부터 떨어진 정도; 즉, position = 0은 파일의 시작)의 다음 바이트부터 읽거나 쓰도록 한다.
-	현재 파일의 EOF를 지나 read하는 것은 오류가 아니다. (read는 0바이트(EOF)를 얻는다.)
-	그러나 여기서는 핀토스의 파일이 고정된 길이를 가지기 때문에, EOF 이후의 write는 에러다.
-	이러한 의미론은 파일 시스템에 구현되어 있기 때문에 시스템 콜 구현에서 다룰 필요는 없다. */
-
 	if (fd < 2 || fd > 63) exit(-1); // invalid fd
 	struct thread *curr = thread_current();
 	struct file *file = curr->fdt[fd];
@@ -311,8 +273,6 @@ void seek (int fd, unsigned position) {
 
 /* Return the position of the next byte to be read or written in open file fd. */
 unsigned tell (int fd) {
-	/* 열린 파일 fd에서 읽거나 쓸 다음 바이트의 위치(파일 시작부터 떨어진 정도)를 리턴한다. */
-
 	if (fd < 2 || fd > 63) exit(-1); // invalid fd
 	struct thread *curr = thread_current();
 	struct file *file = curr->fdt[fd];
@@ -325,9 +285,6 @@ unsigned tell (int fd) {
 
 /* Close file descriptor fd. */
 void close (int fd) {
-	/* 파일 디스크립터 fd를 닫는다.
-	프로세스를 exit하거나 종료하는 것은 (마치 각 파일에 대해 이 함수를 호출한 것 같이) 묵시적으로 모든 열린 파일을 닫는다. */
-
 	if (fd < 2 || fd > 63) exit(-1); // invalid fd
 	struct thread *curr = thread_current();
 	struct file *file = curr->fdt[fd];

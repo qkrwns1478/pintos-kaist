@@ -5,6 +5,7 @@
 #include <list.h>
 #include <stdint.h>
 #include "threads/interrupt.h"
+#include "threads/synch.h"
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -125,6 +126,10 @@ struct thread {
 	// int next_fd;						/* Should be between 2 and 63 */
 	
 	int exit_status;
+	bool is_waited;
+	struct list children;
+	struct list_elem c_elem;
+	struct semaphore c_sema;
 #endif
 #ifdef VM
 	/* Table for whole virtual memory owned by thread. */

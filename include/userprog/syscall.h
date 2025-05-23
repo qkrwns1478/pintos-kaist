@@ -2,13 +2,14 @@
 #define USERPROG_SYSCALL_H
 
 #include <stdbool.h>
+#include "threads/interrupt.h"
 typedef int pid_t;
 
 void syscall_init (void);
 
 void halt (void);
 void exit(int status);
-pid_t fork (const char *thread_name);
+pid_t fork (const char *thread_name, struct intr_frame *if_);
 int exec (const char *cmd_line);
 int wait (pid_t pid);
 bool create (const char *file, unsigned initial_size);

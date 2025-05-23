@@ -448,19 +448,18 @@ init_thread (struct thread *t, const char *name, int priority) {
 	t->wait_on_lock = NULL;
 	list_init(&t->donations);
 
-	#ifdef USERPROG
+#ifdef USERPROG
 	/* Initializes FDT */
 	for (int i = 0; i < 64; i++) {
 		t->fdt[i] = NULL;
 	}
-
 	/* Reserve fd0, fd1 for stdin, stdout */
-	// t->fdt[0] = stdin;
-	// t->fdt[1] = stdout;
-	// t->fdt[2] = stderr;
 	// t->next_fd = 2;
+
 	t->exit_status = 0;
-	#endif
+
+	list_init(&t->children);
+#endif
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should
