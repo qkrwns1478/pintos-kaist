@@ -1,4 +1,5 @@
 #include "userprog/process.h"
+#include "userprog/syscall.h"
 #include <debug.h>
 #include <inttypes.h>
 #include <round.h>
@@ -13,7 +14,9 @@
 #include "threads/flags.h"
 #include "threads/init.h"
 #include "threads/interrupt.h"
+#include "threads/malloc.h"
 #include "threads/palloc.h"
+#include "threads/synch.h"
 #include "threads/thread.h"
 #include "threads/mmu.h"
 #include "threads/vaddr.h"
@@ -82,9 +85,36 @@ initd (void *f_name) {
 /* Clones the current process as `name`. Returns the new process's thread id, or
  * TID_ERROR if the thread cannot be created. */
 tid_t
-process_fork (const char *name, struct intr_frame *if_ UNUSED) {
+process_fork (const char *name, struct intr_frame *if_) {
 	/* Clone current thread to new thread.*/
-	return thread_create (name, PRI_DEFAULT, __do_fork, thread_current ());
+	struct thread *curr = thread_current();
+	// memcpy (&curr->tf, if_, sizeof (struct intr_frame)); // Copy registers (including %rbx, %rbp, …)
+	// tid_t tid = thread_create (name, PRI_DEFAULT, __do_fork, curr); // Create cloned process with name "name"
+	struct fork_args *fa = (struct fork_args *) malloc(sizeof(struct fork_args));
+
+	struct semaphore sema;
+	sema_init(&sema, 0);
+	fa->parent = curr;
+	fa->pf = if_;
+	fa->sema = sema;
+	// sema_down(&fa->sema);
+
+	tid_t tid = thread_create (name, PRI_DEFAULT, __do_fork, fa); // Create cloned process with name "name"
+	if (tid < 0) {
+		free(fa);
+		return TID_ERROR;
+	}
+
+	/* Parent process should never return from the fork until it knows whether the child process successfully cloned. */
+	struct list_elem *e;
+	for (e = list_begin(&curr->children); e != list_end(&curr->children); e = list_next(e)) {
+		struct thread *child = list_entry(e, struct thread, c_elem);
+		if (child->tid == tid) {
+			sema_down(&child->c_sema);
+			break;
+		}
+	}
+	return tid;
 }
 
 #ifndef VM
@@ -99,6 +129,8 @@ duplicate_pte (uint64_t *pte, void *va, void *aux) {
 	bool writable;
 
 	/* 1. TODO: If the parent_page is kernel page, then return immediately. */
+	void *page = pml4_get_page(parent->pml4, va);
+    if (page == NULL) return false;
 
 	/* 2. Resolve VA from the parent's page map level 4. */
 	parent_page = pml4_get_page (parent->pml4, va);
@@ -125,15 +157,20 @@ duplicate_pte (uint64_t *pte, void *va, void *aux) {
  *       this function. */
 static void
 __do_fork (void *aux) {
-	struct intr_frame if_;
-	struct thread *parent = (struct thread *) aux;
-	struct thread *current = thread_current ();
 	/* TODO: somehow pass the parent_if. (i.e. process_fork()'s if_) */
-	struct intr_frame *parent_if;
+	struct intr_frame if_;
+	struct thread *current = thread_current ();
+	struct fork_args *fa = (struct fork_args *) aux;
+	struct thread *parent = fa->parent;
+
+	struct intr_frame *parent_if = fa->pf;
+	// struct intr_frame *parent_if = &parent->tf;
+	current->c_sema = fa->sema;
 	bool succ = true;
 
 	/* 1. Read the cpu context to local stack. */
-	memcpy (&if_, parent_if, sizeof (struct intr_frame));
+	// memcpy (&if_, parent_if, sizeof (struct intr_frame));
+	memcpy(&if_, fa->pf, sizeof(struct intr_frame));
 
 	/* 2. Duplicate PT */
 	current->pml4 = pml4_create();
@@ -157,6 +194,20 @@ __do_fork (void *aux) {
 	 * TODO:       the resources of parent.*/
 
 	process_init ();
+
+	/* TODO: Parent inherits file resources (e.g., opened file descriptor) to child */
+	/* Copy file descripters from parent to newly created process */
+	for (int i = 2; i < 64; i++) {
+		if (parent->fdt[i] != NULL)
+			current->fdt[i] = file_duplicate(parent->fdt[i]);
+	}
+
+	/* Add newly created process in parent's children list. */
+	list_push_back(&parent->children, &current->c_elem);
+
+	sema_up(&fa->sema);
+	if_.R.rax = 0;
+	ASSERT(pml4_get_page(thread_current()->pml4, if_.rsp) != NULL);
 
 	/* Finally, switch to the newly created process. */
 	if (succ)
@@ -235,9 +286,19 @@ process_wait (tid_t child_tid UNUSED) {
 	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
-	for (int i = 0; i < 1000000000; i++) {
-	}
-	return -1;
+	for (unsigned int i = 0; i < (1<<31); i++) {}
+
+	// Find child process by using child_tid
+	// struct thread *curr = thread_current();
+	// struct list_elem *e;
+	// for (e = list_begin(&curr->children); e != list_end(&curr->children); e = list_next(e)) {
+	// 	struct thread *child = list_entry(e, struct thread, c_elem);
+	// 	if (child->tid == child_tid) {
+	// 		sema_down(&child->c_sema);
+	// 		return child->exit_status; // return child's exit status
+	// 	}
+	// }
+	// return -1;
 }
 
 /* Exit the process. This function is called by thread_exit (). */
@@ -250,8 +311,7 @@ process_exit (void) {
 	 * TODO: We recommend you to implement process resource cleanup here. */
 	// for (int fd = 2; fd < 64; fd++) {
 	// 	if (curr->fdt[fd] != NULL) {
-	// 		file_close(curr->fdt[fd]);
-	// 		curr->fdt[fd] = NULL;
+	// 		close(curr->fdt[fd]);
 	// 	}
 	// }
 
