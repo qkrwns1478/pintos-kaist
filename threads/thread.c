@@ -296,9 +296,6 @@ thread_exit (void) {
 
 #ifdef USERPROG
 	process_exit ();
-
-	// TODO: Close all file
-	// TODO: Deallocate the FDT
 #endif
 
 	/* Just set our status to dying and schedule another process.
@@ -451,13 +448,14 @@ init_thread (struct thread *t, const char *name, int priority) {
 #ifdef USERPROG
 	/* Initializes FDT */
 	for (int i = 0; i < 64; i++) {
-		t->fdt[i] = NULL;
+		// t->fdt[i] = NULL;
 	}
 	/* Reserve fd0, fd1 for stdin, stdout */
 	// t->next_fd = 2;
 
-	t->exit_status = 0;
-
+	// t->exit_status = 0;
+	t->is_waited = false;
+	sema_init(&t->c_sema, 0);
 	list_init(&t->children);
 #endif
 }

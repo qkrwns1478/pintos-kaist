@@ -9,7 +9,7 @@
 #ifdef VM
 #include "vm/vm.h"
 #endif
-// #define USERPROG true // for debugging
+#define USERPROG true // for debugging
 
 /* States in a thread's life cycle. */
 enum thread_status {

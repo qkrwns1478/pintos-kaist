@@ -57,13 +57,13 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			exit(f->R.rdi);
 			break;
 		case SYS_FORK:                   /* Clone current process. */
-			f->R.rax = fork(f->R.rdi, f);
+			f->R.rax = fork(f->R.rdi);
 			break;
 		case SYS_EXEC:                   /* Switch current process. */
-			// f->R.rax = exec(f->R.rdi);
+			f->R.rax = exec(f->R.rdi);
 			break;
 		case SYS_WAIT:                   /* Wait for a child process to die. */
-			// f->R.rax = wait(f->R.rdi);
+			f->R.rax = wait(f->R.rdi);
 			break;
 		case SYS_CREATE:                 /* Create a file. */
 			f->R.rax = create(f->R.rdi, f->R.rsi);
@@ -111,7 +111,7 @@ void exit(int status) {
 }
 
 /* Create new process which is the clone of current process with the name THREAD_NAME. */
-pid_t fork (const char *thread_name, struct intr_frame *if_) {
+pid_t fork (const char *thread_name) {
 	/* THREAD_NAME이라는 이름으로 현재 프로세스의 복사본을 생성한다.
 	피호출자가 저장한 레지스터인 %RBX, %RSP, %RBP, %R12 - %R15는 반드시 그 값을 복사해야 하지만, 나머지는 그럴 필요는 없다.
 	자식 프로세스의 pid를 리턴해야만 하며, 그렇지 않은 경우 유효한 pid를 가지면 안 된다.
@@ -123,7 +123,7 @@ pid_t fork (const char *thread_name, struct intr_frame *if_) {
 	pte_for_each_func의 빠진 부분을 채워야 한다. */
 
 	if (!is_valid(thread_name)) exit(-1);
-	return process_fork(thread_name, if_);
+	return process_fork(thread_name, &thread_current()->tf);
 }
 
 /* Create child process and execute program corresponds to cmd_file on it. */
@@ -134,7 +134,6 @@ int exec (const char *cmd_line) {
 	(주의) 파일 디스크립터는 exec가 호출된 이후에도 열려있다. */
 
 	if (!is_valid(cmd_line)) exit(-1);
-
 	return process_exec(cmd_line);
 }
 
