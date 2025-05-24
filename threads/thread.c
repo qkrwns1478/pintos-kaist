@@ -8,6 +8,7 @@
 #include "threads/interrupt.h"
 #include "threads/intr-stubs.h"
 #include "threads/palloc.h"
+#include "threads/malloc.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
 #include "intrinsic.h"
@@ -212,6 +213,11 @@ thread_create (const char *name, int priority, thread_func *function, void *aux)
 	t->tf.cs = SEL_KCSEG;
 	t->tf.eflags = FLAG_IF;
 
+#ifdef USERPROG
+	t->child_info = init_child(tid);
+	list_push_back(&thread_current()->children, &t->child_info->c_elem);
+#endif
+
 	/* Add to run queue. */
 	thread_unblock (t); // Insert thread in ready_list in the order of priority
 
@@ -296,9 +302,6 @@ thread_exit (void) {
 
 #ifdef USERPROG
 	process_exit ();
-
-	// TODO: Close all file
-	// TODO: Deallocate the FDT
 #endif
 
 	/* Just set our status to dying and schedule another process.
@@ -456,9 +459,9 @@ init_thread (struct thread *t, const char *name, int priority) {
 	/* Reserve fd0, fd1 for stdin, stdout */
 	// t->next_fd = 2;
 
-	t->exit_status = 0;
-
 	list_init(&t->children);
+	t->child_info = NULL;
+	t->parent = NULL;
 #endif
 }
 
@@ -849,3 +852,30 @@ int read_sign_bit(int x) {
 int write_sign_bit(int x, int s) {
 	return x | (s<<31);
 }
+
+#ifdef USERPROG
+struct child *init_child(tid_t tid) {
+	// struct child *child = palloc_get_page(PAL_ZERO);
+	struct child *child = (struct child *)malloc(sizeof(struct child));
+	if(child == NULL) return NULL;
+
+	child->tid = tid;
+	child->exit_status = 0;
+	child->is_waited = false;
+	child->is_exit = false;
+	sema_init(&child->c_sema, 0);
+	return child;
+}
+
+struct child *get_child_by_tid(tid_t tid) {
+	struct thread *curr = thread_current();
+	struct list_elem *e;
+
+	for (e = list_begin(&curr->children); e != list_end(&curr->children); e = list_next(e)) {
+		struct child *child = list_entry(e, struct child, c_elem);
+		if (child->tid == tid)
+			return child;
+	}
+	return NULL;
+}
+#endif
