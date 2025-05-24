@@ -5,11 +5,10 @@
 #include <list.h>
 #include <stdint.h>
 #include "threads/interrupt.h"
-#include "threads/synch.h"
 #ifdef VM
 #include "vm/vm.h"
 #endif
-// #define USERPROG true // for debugging
+
 
 /* States in a thread's life cycle. */
 enum thread_status {
@@ -28,10 +27,6 @@ typedef int tid_t;
 #define PRI_MIN 0                       /* Lowest priority. */
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
-
-#define NICE_DEFAULT 0
-#define RECENT_CPU_DEFAULT 0
-#define LOAD_AVG_DEFAULT 0
 
 /* A kernel thread or user process.
  *
@@ -113,23 +108,14 @@ struct thread {
 	/* Data structure for Nested Donation */
 	struct lock *wait_on_lock;			/* lock that it waits for */
 
-	/* Values for the advanced scheduler */
-	int nice;
-	int recent_cpu;
+	struct list_elem child_elem;     /* List element for parent's child list */
+	struct file *run_file;           /* File currently being executed */
+	int exit_status;                 /* Exit status returned to the parent */
+	
 
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4;                     /* Page map level 4 */
-
-	/* File Descriptor Table */
-	struct file *fdt[64];				/* List of pointer to struct file */
-	// int next_fd;						/* Should be between 2 and 63 */
-	
-	int exit_status;
-	bool is_waited;
-	struct list children;
-	struct list_elem c_elem;
-	struct semaphore c_sema;
 #endif
 #ifdef VM
 	/* Table for whole virtual memory owned by thread. */
@@ -184,22 +170,5 @@ bool cmp_priority_donate (const struct list_elem *a, const struct list_elem *b, 
 int get_highest_priority (void);
 void do_preemption (void);
 void thread_refresh_priority (void);
-
-int calc_priority(int recent_cpu, int nice);
-int calc_load_avg (void);
-int calc_recent_cpu (struct thread *t);
-int ready_threads (void);
-int itof(int n);
-int ftoi(int x);
-int add_xy(int x, int y);
-int sub_xy(int x, int y);
-int add_xn(int x, int n);
-int sub_xn(int x, int n);
-int mul_xy(int x, int y);
-int mul_xn(int x, int n);
-int div_xy(int x, int y);
-int div_xn(int x, int n);
-int read_sign_bit(int x);
-int write_sign_bit(int x, int s);
 
 #endif /* threads/thread.h */
