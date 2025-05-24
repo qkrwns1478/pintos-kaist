@@ -126,10 +126,9 @@ struct thread {
 	// int next_fd;						/* Should be between 2 and 63 */
 	
 	int exit_status;
-	bool is_waited;
-	struct list children;
-	struct list_elem c_elem;
-	struct semaphore c_sema;
+	struct thread *parent;				/* Parent of this thread */
+	struct list children;				/* List of children this thread has */
+	struct child *child_info;			/* Information of this thread as someone's child */
 #endif
 #ifdef VM
 	/* Table for whole virtual memory owned by thread. */
@@ -140,6 +139,17 @@ struct thread {
 	struct intr_frame tf;               /* Information for switching */
 	unsigned magic;                     /* Detects stack overflow. */
 };
+
+#ifdef USERPROG
+struct child {
+	tid_t tid;
+	int exit_status;
+	bool is_waited;
+	bool is_exit;
+	struct list_elem c_elem;
+	struct semaphore c_sema;
+};
+#endif
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
@@ -201,5 +211,10 @@ int div_xy(int x, int y);
 int div_xn(int x, int n);
 int read_sign_bit(int x);
 int write_sign_bit(int x, int s);
+
+#ifdef USERPROG
+struct child *init_child (tid_t tid);
+struct child *get_child_by_tid (tid_t tid);
+#endif
 
 #endif /* threads/thread.h */

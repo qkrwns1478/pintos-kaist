@@ -2,9 +2,9 @@
 #include "userprog/process.h"
 #include <stdio.h>
 #include <syscall-nr.h>
-#include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/loader.h"
+#include "threads/palloc.h"
 #include "userprog/gdt.h"
 #include "threads/flags.h"
 #include "intrinsic.h"
@@ -57,7 +57,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			exit(f->R.rdi);
 			break;
 		case SYS_FORK:                   /* Clone current process. */
-			f->R.rax = fork(f->R.rdi);
+			f->R.rax = fork(f->R.rdi, f);
 			break;
 		case SYS_EXEC:                   /* Switch current process. */
 			f->R.rax = exec(f->R.rdi);
@@ -111,61 +111,29 @@ void exit(int status) {
 }
 
 /* Create new process which is the clone of current process with the name THREAD_NAME. */
-pid_t fork (const char *thread_name) {
-	/* THREAD_NAME이라는 이름으로 현재 프로세스의 복사본을 생성한다.
-	피호출자가 저장한 레지스터인 %RBX, %RSP, %RBP, %R12 - %R15는 반드시 그 값을 복사해야 하지만, 나머지는 그럴 필요는 없다.
-	자식 프로세스의 pid를 리턴해야만 하며, 그렇지 않은 경우 유효한 pid를 가지면 안 된다.
-	자식 프로세스에서는 리턴값이 0이어야 한다.
-	자식 프로세스는 파일 디스크립터와 VM 공간 등을 포함해 복제된 리소스를 가져야 한다.
-	부모 프로세스는 자식 프로세스가 성공적으로 복제된 것을 알기 전까지는 fork로부터 리턴하면 안 된다. 
-	즉, 자식 프로세스가 자원을 복제하는 데 실패했다면, 부모의 fork() call은 TID_ERROR를 리턴해야 한다.
-	템플릿은 대응하는 페이지 테이블 구조를 포함한 전체 유저 메모리 공간을 복사하는데 pml4_for_each()를 사용하지만,
-	pte_for_each_func의 빠진 부분을 채워야 한다. */
-
+pid_t fork (const char *thread_name, struct intr_frame *f) {
 	if (!is_valid(thread_name)) exit(-1);
-	return process_fork(thread_name, &thread_current()->tf);
+	return process_fork(thread_name, f);
 }
 
 /* Create child process and execute program corresponds to cmd_file on it. */
 int exec (const char *cmd_line) {
-	/* 현재 프로세스를 cmd_line에 (어떤 인수와 함께) 주어진 이름의 실행 프로그램으로 바꾼다.
-	성공하면 리턴하지 않지만, 어떤 이유로 프로그램을 로드하거나 실행할 수 없다면, 그 프로그램은 -1을 리턴하면서 종료된다.
-	이 함수는 exec를 호출한 스레드의 이름을 바꾸지 않는다. 
-	(주의) 파일 디스크립터는 exec가 호출된 이후에도 열려있다. */
-
 	if (!is_valid(cmd_line)) exit(-1);
-	return process_exec(cmd_line);
+	// if (process_exec(cmd_line) == -1) exit(-1);
+	char *buf = palloc_get_page(PAL_ZERO);
+	if (buf == NULL) exit(-1);
+	strlcpy(buf, cmd_line, PGSIZE);
+	if (process_exec(buf) == -1) exit(-1);
+	NOT_REACHED();
 }
 
 /* Wait for termination of child process whose process id is pid. */
 int wait (pid_t pid) {
-	/* 자식 프로세스 pid를 기다리고, 자식의 종료 상태를 회수한다. pid가 아직 살아 있다면, 종료될 때까지 기다린다.
-	pid가 exit하면서 넘긴 상태값을 리턴한다.
-	pid가 exit()을 호출하지 않았지만 (exception 등에 의해) 커널에 의해 종료되었다면, wait(pid)는 -1을 리턴한다.
-	부모 프로세스가 wait을 호출했을 때 이미 종료된 자식 프로세스를 기다릴 수도 있다. 
-	하지만 커널은 여전히 부모가 자식의 종료 상태를 회수하거나 자식이 커널에 의해 종료되었음을 알도록 해야 한다.
-	다음과 같은 조건들이 참인 경우 wait은 즉시 실패하고 -1을 리턴해야 한다:
-		- pid가 호출한 프로세스의 direct child를 참조하지 않는 경우:
-			호출한 프로세스가 fork를 성공적으로 호출했을 때 pid를 리턴값으로 받을 때, pid는 호출한 프로세스의 direct child이다.
-			A가 자식 B를 만들고, B가 자식 C를 만들면, A는 B가 죽어도 C를 wait할 수 없다는 점에서 자식은 상속되지 않는다.
-			A에 의한 wait(C)는 실패해야 한다.
-			비슷하게, 고아 프로세스들은 그들의 부모 프로세스가 (새로운 부모를 할당하기 전에) 종료한다면 새로운 부모를 가질 수 없다.
-		- wait을 호출하는 프로세스가 이미 pid에 wait을 호출한 경우:
-			즉, 프로세스는 어떤 주어진 자식에 대해 최대 한 번만 wait할 수 있다.
-	프로세스들은 아무 수의 자식을 만들고, 아무 순서로 wait하고, 심지어 그 자식들 중 일부 또는 전체를 기다리지 않고 종료될 수 있다. 
-	구현할 때 가능한 모든 경우를 고려해야 한다.
-	부모가 기다리든지 말든지, 자식이 부모 전/후로 종료되던지 간에, struct thread를 포함한 프로세스의 모든 자원들은 free되어야 한다.
-	최초의 프로세가 exit할 때까지는 핀토스가 종료되서는 안 된다. 제공된 핀토스는 main()에서 process_wait()를 호출해서 이 조건을 지키려고 한다. 
-	process_wait()를 먼저 구현하고, process_wait()에 따라 wait 시스템 콜을 구현해 보자. */
-
 	return process_wait(pid);
 }
 
 /* Create file which have size of initial_size. */
 bool create (const char *file, unsigned initial_size) {
-	// if (!is_user_vaddr(file)) exit(-1);
-	// if (!pml4_get_page(thread_current()->pml4, file)) exit(-1);
-	// if (file == NULL) exit(-1);
 	if (!is_valid(file)) exit(-1);
 	lock_acquire(&filesys_lock);
 	bool res = filesys_create(file, initial_size);

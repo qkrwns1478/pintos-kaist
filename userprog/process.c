@@ -89,28 +89,38 @@ tid_t
 process_fork (const char *name, struct intr_frame *if_) {
 	/* Clone current thread to new thread.*/
 	struct thread *curr = thread_current();
-	// struct fork_args *fa = (struct fork_args *) malloc(sizeof(struct fork_args));
 	struct fork_args *fa = palloc_get_page(PAL_ZERO);
+	if (fa == NULL) return TID_ERROR;
 	fa->parent = curr;
 	fa->pf = if_;
 
 	tid_t tid = thread_create (name, PRI_DEFAULT, __do_fork, fa); // Create cloned process with name "name"
 	if (tid < 0) {
-		// free(fa);
 		palloc_free_page(fa);
 		return TID_ERROR;
 	}
 
-	/* Parent process should never return from the fork until it knows whether the child process successfully cloned. */
-	struct list_elem *e;
-	for (e = list_begin(&curr->children); e != list_end(&curr->children); e = list_next(e)) {
-		struct thread *child = list_entry(e, struct thread, c_elem);
-		if (child->tid == tid) {
-			sema_down(&child->c_sema);
-			break;
-		}
+	/* Parent process should never return from the fork until
+	   it knows whether the child process successfully cloned. */
+	struct child *child = get_child_by_tid(tid);
+	if (child == NULL) {
+		palloc_free_page(fa);
+		return TID_ERROR;
 	}
+	fa->child_info = child;
+
+	sema_down(&child->c_sema);  // Wait until child finishes __do_fork
 	return tid;
+
+	// struct list_elem *e;
+	// for (e = list_begin(&curr->children); e != list_end(&curr->children); e = list_next(e)) {
+	// 	struct child *ch = list_entry(e, struct child, c_elem);
+	// 	if (ch->tid == tid) {
+	// 		sema_down(&ch->c_sema);
+	// 		break;
+	// 	}
+	// }
+	// return tid;
 }
 
 #ifndef VM
@@ -125,12 +135,11 @@ duplicate_pte (uint64_t *pte, void *va, void *aux) {
 	bool writable;
 
 	/* 1. TODO: If the parent_page is kernel page, then return immediately. */
-	void *page = pml4_get_page(parent->pml4, va);
-	if (is_kernel_vaddr(&page)) return true;
+	if (is_kernel_vaddr(va)) return true;
 
 	/* 2. Resolve VA from the parent's page map level 4. */
 	parent_page = pml4_get_page (parent->pml4, va);
-	if (parent_page = NULL) return false;
+	if (parent_page == NULL) return false;
 
 	/* 3. TODO: Allocate new PAL_USER page for the child and set result to
 	 *    TODO: NEWPAGE. */
@@ -140,7 +149,7 @@ duplicate_pte (uint64_t *pte, void *va, void *aux) {
 	/* 4. TODO: Duplicate parent's page to the new page and
 	 *    TODO: check whether parent's page is writable or not (set WRITABLE
 	 *    TODO: according to the result). */
-	memcpy(newpage, parent_page, sizeof(newpage));
+	memcpy(newpage, parent_page, PGSIZE);
 	writable = is_writable(pte);
 
 	/* 5. Add new page to child's page table at address VA with WRITABLE
@@ -166,12 +175,26 @@ __do_fork (void *aux) {
 	struct fork_args *fa = (struct fork_args *) aux;
 	struct thread *parent = fa->parent;
 
+	current->parent = parent;
+	current->child_info = fa->child_info;
+	// ASSERT(current->child_info != NULL);
+	current->child_info->tid = current->tid;
+
+	// struct list_elem *e;
+	// for (e = list_begin(&parent->children); e != list_end(&parent->children); e = list_next(e)) {
+	// 	struct child *ch = list_entry(e, struct child, c_elem);
+	// 	if (ch->tid == current->tid) {
+	// 		current->child_info = ch;
+	// 		break;
+	// 	}
+	// }
+
 	struct intr_frame *parent_if = fa->pf;
-	// current->c_sema = fa->sema;
 	bool succ = true;
 
 	/* 1. Read the cpu context to local stack. */
 	memcpy(&if_, parent_if, sizeof(struct intr_frame));
+	if_.R.rax = 0; // Set child's rax to 0
 
 	/* 2. Duplicate PT */
 	current->pml4 = pml4_create();
@@ -199,24 +222,21 @@ __do_fork (void *aux) {
 	/* TODO: Parent inherits file resources (e.g., opened file descriptor) to child */
 	/* Copy file descripters from parent to newly created process */
 	for (int i = 2; i < 64; i++) {
-		if (&parent->fdt[i] != NULL) current->fdt[i] = file_duplicate(parent->fdt[i]);
+		if (parent->fdt[i] != NULL) current->fdt[i] = file_duplicate(parent->fdt[i]);
 		else current->fdt[i] = NULL;
 	}
 
-	/* Add newly created process in parent's children list. */
-	// list_push_back(&parent->children, &current->c_elem);
+	// struct list_elem *e;
+	// for (e = list_begin(&parent->children); e != list_end(&parent->children); e = list_next(e)) {
+	// 	struct child *ch = list_entry(e, struct child, c_elem);
+	// 	if (ch->tid == current->tid) {
+	// 		sema_up(&ch->c_sema);
+	// 		break;
+	// 	}
+	// }
 
-	struct list_elem *e;
-	for (e = list_begin(&parent->children); e != list_end(&parent->children); e = list_next(e)) {
-		struct thread *th = list_entry(e, struct thread, c_elem);
-		if (th->tid == current->tid) {
-			sema_up(&th->c_sema);
-			break;
-		}
-	}
-
-	if_.R.rax = 0;
 	palloc_free_page(fa);
+	sema_up(&current->child_info->c_sema);
 
 	/* Finally, switch to the newly created process. */
 	if (succ)
@@ -229,24 +249,35 @@ error:
  * Returns -1 on fail. */
 int
 process_exec (void *f_name) {
-	char *file_name;
-	strlcpy(file_name, f_name, strlen(f_name)+1);
+	// char *file_name;
+	// strlcpy(file_name, f_name, strlen(f_name)+1);
+	char *f_copy = palloc_get_page(PAL_ZERO);
+    if (f_copy == NULL) return -1;
+    strlcpy(f_copy, f_name, PGSIZE);
 	bool success;
 	bool res;
 
 	/* Parse file_name into command line and arguments */
 	char *argv[ARGUMENT_LIMIT];
 	char *save_ptr = NULL;
-	char *token = strtok_r(f_name, " ", &save_ptr);
+	char *token = strtok_r(f_copy, " ", &save_ptr);
 
 	int argc = 0;
-	while (token) {
+	while (token && argc < ARGUMENT_LIMIT) {
 		argv[argc++] = token;
 		token = strtok_r(NULL, " ", &save_ptr);
 	}
 	argv[argc] = 0;
 
-	file_name = argv[0];
+	char **argv_copy = palloc_get_page(PAL_ZERO);
+    if (argv_copy == NULL) {
+        palloc_free_page(f_copy);
+        return -1;
+    }
+    for (int i = 0; i < argc; i++) {
+        argv_copy[i] = argv[i];
+    }
+	char *file_name = argv[0];
 	
 	/* We cannot use the intr_frame in the thread structure.
 	 * This is because when current thread rescheduled,
@@ -255,7 +286,7 @@ process_exec (void *f_name) {
 	_if.ds = _if.es = _if.ss = SEL_UDSEG;
 	_if.cs = SEL_UCSEG;
 	_if.eflags = FLAG_IF | FLAG_MBS;
-	_if.R.rsi = (uint64_t) argv; // Point %rsi to argv (the address of argv[0])
+	_if.R.rsi = (uint64_t) argv_copy; // Point %rsi to argv (the address of argv[0])
 	_if.R.rdi = argc; // Set %rdi to argc
 
 	/* We first kill the current context */
@@ -263,17 +294,26 @@ process_exec (void *f_name) {
 
 	/* And then load the binary */
 	success = load (file_name, &_if); // Pass the program name to load()
+	/* If load failed, quit. */
+	if (!success) {
+		// return -1;
+		palloc_free_page(f_copy);
+        palloc_free_page(argv_copy);
+		exit(-1);
+	}
 
 	res = argument_stack(&_if);
-	if (!res)
+	if (!res) {
+		palloc_free_page(f_copy);
+        palloc_free_page(argv_copy);
 		return -1;
+	}
+
 	_if.R.rsi = _if.rsp + sizeof(uintptr_t);
 	// hex_dump(_if.rsp, _if.rsp, USER_STACK - (uint64_t)_if.rsp, true); // for debugging user stack
 
-	/* If load failed, quit. */
-	palloc_free_page (file_name);
-	if (!success)
-		return -1;
+	palloc_free_page(f_copy);
+    palloc_free_page(argv_copy);
 
 	/* Start switched process. */
 	do_iret (&_if); // Change the mode of user program: user mode ←→ kernel mode
@@ -296,24 +336,31 @@ process_wait (tid_t child_tid UNUSED) {
 	// return -1;
 
 	/* Find child process by using child_tid */
-	struct thread *curr = thread_current();
-	struct thread *child = NULL;
-	struct list_elem *e;
-	for (e = list_begin(&curr->children); e != list_end(&curr->children); e = list_next(e)) {
-		struct thread *th = list_entry(e, struct thread, c_elem);
-		if (th->tid == child_tid) {
-			child = th;
-			break;
-		}
-	}
+	if (child_tid == NULL) return -1;
+	// struct thread *curr = thread_current();
+	// struct list_elem *e;
+	// for (e = list_begin(&curr->children); e != list_end(&curr->children); e = list_next(e)) {
+	// 	struct child *child = list_entry(e, struct child, c_elem);
+	// 	if (child->tid == child_tid && !child->is_waited) {
+	// 		child->is_waited = true;
+	// 		if (!child->is_exit) sema_down(&child->c_sema);
+	// 		int status = child->exit_status;
+	// 		list_remove(&child->c_elem);
+	// 		free(child);
+	// 		return status;
+	// 	}
+	// }
+	struct child *child = get_child_by_tid(child_tid);
 	if (child == NULL) return -1;
-	if (child->is_waited) return -1; // Return -1 when the process that calls wait has already called wait on pid.
-	
-	child->is_waited = true;
-	sema_down(&child->c_sema);
-	int res = child->exit_status;
-	list_remove(&child->c_elem);
-	return res;
+	if (!child->is_waited) {
+		child->is_waited = true;
+		if (!child->is_exit) sema_down(&child->c_sema);
+		int status = child->exit_status;
+		list_remove(&child->c_elem);
+		free(child);
+		return status;
+	}
+	return -1;
 }
 
 /* Exit the process. This function is called by thread_exit (). */
@@ -325,8 +372,7 @@ process_exit (void) {
 	 * TODO: project2/process_termination.html).
 	 * TODO: We recommend you to implement process resource cleanup here. */
 
-	/* TODO: Close all file
-	 * TODO: Deallocate the FDT */
+	/* Close all file and deallocate the FDT */
 	for (int fd = 2; fd < 64; fd++) {
 		if (curr->fdt[fd] != NULL) {
 			file_close(curr->fdt[fd]);
@@ -334,7 +380,25 @@ process_exit (void) {
 		}
 	}
 
-	sema_up(&curr->c_sema);
+	if (curr->child_info != NULL) {
+		curr->child_info->exit_status = curr->exit_status;
+		curr->child_info->is_exit = true;
+		sema_up(&curr->child_info->c_sema);
+	}
+	
+	// struct thread *parent = curr->parent;
+	// if (parent != NULL) {
+	// 	struct list_elem *e;
+	// 	for (e = list_begin(&parent->children); e != list_end(&parent->children); e = list_next(e)) {
+	// 		struct child *child = list_entry(e, struct child, c_elem);
+	// 		if (child->tid == curr->tid) {
+	// 			child->exit_status = curr->exit_status;
+	// 			child->is_exit = true;
+	// 			sema_up(&child->c_sema);
+	// 			break;
+	// 		}
+	// 	}
+	// }
 
 	process_cleanup ();
 }
@@ -760,11 +824,11 @@ setup_stack (struct intr_frame *if_) {
 static bool argument_stack(struct intr_frame *if_) {
 	char** argv = (char **) if_->R.rsi;
 	int argc = if_->R.rdi;
-	char *addrs[argc]; // argv[i]의 유저 스택 상의 주소 저장
+	char *addrs[argc];
 
 	/* 1. Push argv[i][…] */
 	for (int i = argc-1; i >= 0; i--) {
-		size_t len = strlen(*(argv + i)) + 1; // strlen은 '\0'을 세지 않기 때문에 +1 해줌
+		size_t len = strlen(*(argv + i)) + 1;
 		if_->rsp -= len;
 		if (!is_valid_addr(if_->rsp))
 			return false;
