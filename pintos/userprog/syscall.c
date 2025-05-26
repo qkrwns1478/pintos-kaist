@@ -30,7 +30,7 @@ bool is_valid (const void *addr); // 유효한 주소인지 확인하는 함수
 #define MSR_LSTAR 0xc0000082        /* Long mode SYSCALL target */
 #define MSR_SYSCALL_MASK 0xc0000084 /* Mask for the eflags */
 
-struct lock filesys_lock;
+struct lock filesys_lock; // 파일 시스템 잠금
 
 void
 syscall_init (void) {
