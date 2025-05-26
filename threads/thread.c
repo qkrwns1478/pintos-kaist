@@ -865,6 +865,7 @@ struct child *init_child(tid_t tid) {
 	child->exit_status = 0;
 	child->is_waited = false;
 	child->is_exit = false;
+	child->fork_fail = false;
 	sema_init(&child->c_sema, 0);
 	return child;
 }

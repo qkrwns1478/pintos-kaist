@@ -150,6 +150,7 @@ struct child {
 	int exit_status;
 	bool is_waited;
 	bool is_exit;
+	bool fork_fail;
 	struct list_elem c_elem;
 	struct semaphore c_sema;
 };
