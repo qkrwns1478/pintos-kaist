@@ -223,16 +223,13 @@ __do_fork (void *aux) {
 	/* TODO: Parent inherits file resources (e.g., opened file descriptor) to child */
 	/* Copy file descripters from parent to newly created process */
 	for (int i = 2; i < FILED_MAX; i++) {
-		if (parent->fdt[i] != NULL) current->fdt[i] = file_duplicate(parent->fdt[i]);
+		if (parent->fdt[i] != NULL) {
+			struct file *dup = file_duplicate(parent->fdt[i]);
+			if (dup == NULL) goto error;
+			current->fdt[i] = dup;
+		}
 		else current->fdt[i] = NULL;
 	}
-	// for (int i = 2; i < FILED_MAX; i++) {
-	// 	if (parent->fdt[i] != NULL) {
-	// 		struct file *dup = file_duplicate(parent->fdt[i]);
-	// 		if (dup != NULL) current->fdt[i] = dup;
-	// 	}
-	// 	else current->fdt[i] = NULL;
-	// }
 
 	// struct list_elem *e;
 	// for (e = list_begin(&parent->children); e != list_end(&parent->children); e = list_next(e)) {
