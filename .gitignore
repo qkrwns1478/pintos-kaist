@@ -40,3 +40,5 @@ syscall-entry.S
 syscall.c
 targets.mk
 tss.c
+
+.vscode/
