@@ -15,10 +15,10 @@ Executing 'sm-seq-random':
 (sm-seq-random) begin
 (sm-seq-random) create "nibble"
 Execution of 'sm-seq-random' complete.
-Timer: 370 ticks
-Thread: 31 idle ticks, 339 kernel ticks, 0 user ticks
+Timer: 380 ticks
+Thread: 32 idle ticks, 348 kernel ticks, 0 user ticks
 hd0:0: 0 reads, 0 writes
-hd0:1: 88 reads, 265 writes
+hd0:1: 90 reads, 265 writes
 hd1:0: 107 reads, 0 writes
 Console: 863 characters output
 Keyboard: 0 keys pressed

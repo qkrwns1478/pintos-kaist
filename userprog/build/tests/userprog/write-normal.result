@@ -10,6 +10,6 @@ Acceptable output:
 Differences in `diff -u' format:
   (write-normal) begin
   (write-normal) create "test.txt"
-- (write-normal) open "test.txt"
+  (write-normal) open "test.txt"
 - (write-normal) end
 - write-normal: exit(0)
