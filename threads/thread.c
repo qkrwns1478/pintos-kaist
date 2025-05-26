@@ -4,6 +4,7 @@
 #include <random.h>
 #include <stdio.h>
 #include <string.h>
+#include "devices/timer.h"
 #include "threads/flags.h"
 #include "threads/interrupt.h"
 #include "threads/intr-stubs.h"
@@ -60,6 +61,7 @@ static unsigned thread_ticks;   /* # of timer ticks since last yield. */
    Controlled by kernel command-line option "-o mlfqs". */
 bool thread_mlfqs;
 int load_avg = LOAD_AVG_DEFAULT;
+static struct list all_list;
 
 static void kernel_thread (thread_func *, void *aux);
 
@@ -116,6 +118,7 @@ thread_init (void) {
 	lock_init (&tid_lock);
 	list_init (&ready_list);
 	list_init (&sleep_list);
+	list_init (&all_list);
 	list_init (&destruction_req);
 
 	/* Set up a thread structure for the running thread. */
@@ -159,6 +162,16 @@ thread_tick (void) {
 	else
 		kernel_ticks++;
 
+	if (thread_mlfqs && idle_thread != NULL) {
+		mlfqs_increment();
+		if (timer_ticks() % TIMER_FREQ == 0) {
+			mlfqs_update_load_avg();
+			mlfqs_update_recent_cpu();
+		}
+		if (timer_ticks() % 4 == 0)
+			mlfqs_update_priority_all();
+	}
+
 	/* Enforce preemption. */
 	if (++thread_ticks >= TIME_SLICE)
 		intr_yield_on_return ();
@@ -201,6 +214,11 @@ thread_create (const char *name, int priority, thread_func *function, void *aux)
 	/* Initialize thread. */
 	init_thread (t, name, priority);
 	tid = t->tid = allocate_tid ();
+	if (thread_mlfqs) {
+		t->nice = thread_current()->nice;
+		t->recent_cpu = 0;
+		t->priority = calc_priority(t->recent_cpu, t->nice);
+	}
 
 	/* Call the kernel_thread if it scheduled.
 	 * Note) rdi is 1st argument, and rsi is 2nd argument. */
@@ -361,7 +379,16 @@ thread_get_priority_ori (void) {
 /* Sets the current thread's nice value to NICE. */
 void
 thread_set_nice (int nice UNUSED) {
-	thread_current()->nice = nice;
+	struct thread *curr = thread_current();
+	curr->nice = nice;
+
+	if (thread_mlfqs) {
+		calc_recent_cpu(curr);
+		curr->priority = calc_priority(curr->recent_cpu, curr->nice);
+		if (curr->priority > PRI_MAX) curr->priority = PRI_MAX;
+		if (curr->priority < PRI_MIN) curr->priority = PRI_MIN;
+		thread_yield();
+	}
 }
 
 /* Returns the current thread's nice value. */
@@ -373,13 +400,13 @@ thread_get_nice (void) {
 /* Returns 100 times the system load average. */
 int
 thread_get_load_avg (void) {
-	return load_avg;
+	return ftoi(load_avg * 100);
 }
 
 /* Returns 100 times the current thread's recent_cpu value. */
 int
 thread_get_recent_cpu (void) {
-	return thread_current()->recent_cpu * 100;
+	return ftoi(thread_current()->recent_cpu) * 100;
 }
 
 /* Idle thread.  Executes when no other thread is ready to run.
@@ -441,15 +468,21 @@ init_thread (struct thread *t, const char *name, int priority) {
 	t->status = THREAD_BLOCKED;
 	strlcpy (t->name, name, sizeof t->name);
 	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
-	t->priority = priority;
-	t->priority_ori = priority;
-	t->nice = NICE_DEFAULT;
-	t->recent_cpu = RECENT_CPU_DEFAULT;
+	if (thread_mlfqs) {
+		t->nice = NICE_DEFAULT;
+		t->recent_cpu = RECENT_CPU_DEFAULT;
+		t->priority = calc_priority(t->recent_cpu, t->nice);
+		t->priority_ori = t->priority;
+	} else {
+		t->priority = priority;
+		t->priority_ori = priority;
+	}
 	t->magic = THREAD_MAGIC;
 
 	/* Initializes data structure for priority donation */
 	t->wait_on_lock = NULL;
 	list_init(&t->donations);
+	list_push_back(&all_list, &t->allelem);
 
 #ifdef USERPROG
 	/* Initializes FDT */
@@ -737,20 +770,17 @@ thread_refresh_priority (void) {
 	}
 }
 
-/* Calculate priority using recent_cpu and nice. */
+/* MLFQS */
+
 int calc_priority(int recent_cpu, int nice) {
-	// return PRI_MAX - (recent_cpu / 4) - (nice * 2);
 	return ftoi(itof(PRI_MAX) - add_xy(div_xn(recent_cpu, 4), mul_xn(itof(nice), 2)));
 }
 
-/* Calculate load average */
 int calc_load_avg (void) {
-	// load_avg = (59/60)*load_avg + (1/60)*ready_threads
 	load_avg = add_xy(mul_xy(div_xy(itof(59), itof(60)), load_avg), mul_xy(div_xy(itof(1), itof(60)), itof(ready_threads())));
 	return load_avg;
 }
 
-/* Calculate recent_cpu */
 int calc_recent_cpu (struct thread *t) {
 	int decay = div_xy(mul_xn(load_avg, 2), add_xn(mul_xn(load_avg, 2), 1));
 	t->recent_cpu = add_xn(mul_xy(decay, t->recent_cpu), 1);
@@ -764,75 +794,38 @@ int ready_threads (void) {
 		struct thread *t = list_entry(e, struct thread, elem);
 		if (t != idle_thread) cnt++;
 	}
+	if (thread_current() != idle_thread) cnt++;
 	return cnt;
 }
 
-/* Convert int to fixed point */
 int itof(int n) {
-	// return n * F_ONE;
-	int x = n * F_ONE;
-	if (n < 0) {
-		x = -x;
-		return write_sign_bit(x, 1);
-	} else
-		return write_sign_bit(x, 0);
+	return n * F_ONE;
 }
 
-/* Convert fixed point to int */
 int ftoi(int x) {
+	return x / F_ONE;
 	// if (x >= 0) return (x + F_ONE / 2) / F_ONE;
 	// else return (x - F_ONE / 2) / F_ONE;
-	int n;
-	if (x >= 0) n =  (x + F_ONE / 2) / F_ONE;
-	else n = (x - F_ONE / 2) / F_ONE;
-	if (read_sign_bit(n))
-		n = -n;
-	return n;
 }
 
 int add_xy(int x, int y) {
-	// return x + y;
-	int x_val = x & (0<<31);
-	int y_val = y & (0<<31);
-	int res;
-	if (read_sign_bit(x)) {
-		if (read_sign_bit(y)) {
-			res = x_val + y_val;
-			return write_sign_bit(res, 1);
-		} else {
-			res = x_val - y_val;
-			if (res < 0) return write_sign_bit(res, 0);
-			else return write_sign_bit(res, 1);
-		}
-	} else {
-		if (read_sign_bit(y)) {
-			res = x_val - y_val;
-			if (res < 0) return write_sign_bit(res, 0);
-			else return write_sign_bit(res, 1);
-		} else {
-			res = x_val + y_val;
-			return write_sign_bit(res, 0);
-		}
-	}
+	return x + y;
 }
 
 int sub_xy(int x, int y) {
-	// return x - y;
-	return add_xy(x, -y);
+	return x - y;
 }
 
 int add_xn(int x, int n) {
-	// return x + n * F_ONE;
-	return add_xy(x, itof(n));
+	return x + n * F_ONE;
 }
 
 int sub_xn(int x, int n) {
-	// return x - n * F_ONE;
-	return sub_xy(x, itof(n));
+	return x - n * F_ONE;
 }
 
 int mul_xy(int x, int y) {
-	return ((int64_t)x) * y / F_ONE;
+	return (int)((((int64_t)x) * y) / F_ONE);
 }
 
 int mul_xn(int x, int n) {
@@ -840,24 +833,44 @@ int mul_xn(int x, int n) {
 }
 
 int div_xy(int x, int y) {
-	return ((int64_t)x) * F_ONE / y;
+	return (int)((((int64_t)x) * F_ONE) / y);
 }
 
 int div_xn(int x, int n) {
 	return x / n;
 }
 
-int read_sign_bit(int x) {
-	return 1 & (x<<31); // return 1 if x is negative
+void mlfqs_increment(void) {
+	struct thread *curr = thread_current();
+	if (curr != idle_thread)
+		curr->recent_cpu = add_xn(curr->recent_cpu, 1);
 }
 
-int write_sign_bit(int x, int s) {
-	return x | (s<<31);
+void mlfqs_update_load_avg(void) {
+	calc_load_avg();
+}
+
+void mlfqs_update_recent_cpu(void) {
+	struct list_elem *e;
+	for (e = list_begin(&all_list); e != list_end(&all_list); e = list_next(e)) {
+		struct thread *t = list_entry(e, struct thread, allelem);
+		if (t != idle_thread)
+			calc_recent_cpu(t);
+	}
+}
+
+void mlfqs_update_priority_all(void) {
+	struct list_elem *e;
+	for (e = list_begin(&all_list); e != list_end(&all_list); e = list_next(e)) {
+		struct thread *t = list_entry(e, struct thread, allelem);
+		t->priority = calc_priority(t->recent_cpu, t->nice);
+		if (t->priority > PRI_MAX) t->priority = PRI_MAX;
+		if (t->priority < PRI_MIN) t->priority = PRI_MIN;
+	}
 }
 
 #ifdef USERPROG
 struct child *init_child(tid_t tid) {
-	// struct child *child = palloc_get_page(PAL_ZERO);
 	struct child *child = (struct child *)malloc(sizeof(struct child));
 	if(child == NULL) return NULL;
 

@@ -118,6 +118,8 @@ struct thread {
 	int nice;
 	int recent_cpu;
 
+	struct list_elem allelem;			/* List element for all_list */
+
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4;                     /* Page map level 4 */
@@ -213,8 +215,12 @@ int mul_xy(int x, int y);
 int mul_xn(int x, int n);
 int div_xy(int x, int y);
 int div_xn(int x, int n);
-int read_sign_bit(int x);
-int write_sign_bit(int x, int s);
+void mlfqs_priority (struct thread *t);
+void mlfqs_recent_cpu (struct thread *t);
+void mlfqs_increment (void);
+void mlfqs_update_load_avg (void);
+void mlfqs_update_recent_cpu (void);
+void mlfqs_update_priority_all (void);
 
 #ifdef USERPROG
 struct child *init_child (tid_t tid);
