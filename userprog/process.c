@@ -110,6 +110,10 @@ process_fork (const char *name, struct intr_frame *if_) {
 	fa->child_info = child;
 
 	sema_down(&child->c_sema);  // Wait until child finishes __do_fork
+	if (child->exit_status == TID_ERROR) {
+		sema_up(&child->c_sema);
+		return TID_ERROR;
+	}
 	return tid;
 
 	// struct list_elem *e;
@@ -220,7 +224,7 @@ __do_fork (void *aux) {
 
 	/* TODO: Parent inherits file resources (e.g., opened file descriptor) to child */
 	/* Copy file descripters from parent to newly created process */
-	for (int i = 2; i < 64; i++) {
+	for (int i = 2; i < FILED_MAX; i++) {
 		if (parent->fdt[i] != NULL) current->fdt[i] = file_duplicate(parent->fdt[i]);
 		else current->fdt[i] = NULL;
 	}
@@ -241,7 +245,8 @@ __do_fork (void *aux) {
 	if (succ)
 		do_iret (&if_);
 error:
-	thread_exit ();
+	// thread_exit ();
+	exit(-1);
 }
 
 /* Switch the current execution context to the f_name.
@@ -359,7 +364,7 @@ process_exit (void) {
 	 * TODO: We recommend you to implement process resource cleanup here. */
 
 	/* Close all file and deallocate the FDT */
-	for (int fd = 2; fd < 64; fd++) {
+	for (int fd = 2; fd < FILED_MAX; fd++) {
 		if (curr->fdt[fd] != NULL) {
 			lock_acquire(&filesys_lock);
 			file_close(curr->fdt[fd]);

@@ -33,6 +33,8 @@ typedef int tid_t;
 #define RECENT_CPU_DEFAULT 0
 #define LOAD_AVG_DEFAULT 0
 
+#define FILED_MAX 128					/* Maximum # of file descriptors. */
+
 /* A kernel thread or user process.
  *
  * Each thread structure is stored in its own 4 kB page.  The
@@ -122,8 +124,8 @@ struct thread {
 	uint64_t *pml4;                     /* Page map level 4 */
 
 	/* File Descriptor Table */
-	struct file *fdt[64];				/* List of pointer to struct file */
-	// int next_fd;						/* Should be between 2 and 63 */
+	struct file *fdt[FILED_MAX];				/* List of pointer to struct file */
+	// int next_fd;
 	
 	int exit_status;
 	struct thread *parent;				/* Parent of this thread */

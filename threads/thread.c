@@ -453,7 +453,7 @@ init_thread (struct thread *t, const char *name, int priority) {
 
 #ifdef USERPROG
 	/* Initializes FDT */
-	for (int i = 0; i < 64; i++) {
+	for (int i = 0; i < FILED_MAX; i++) {
 		t->fdt[i] = NULL;
 	}
 	/* Reserve fd0, fd1 for stdin, stdout */
