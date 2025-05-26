@@ -177,7 +177,6 @@ __do_fork (void *aux) {
 
 	current->parent = parent;
 	current->child_info = fa->child_info;
-	// ASSERT(current->child_info != NULL);
 	current->child_info->tid = current->tid;
 
 	// struct list_elem *e;
@@ -337,19 +336,6 @@ process_wait (tid_t child_tid UNUSED) {
 
 	/* Find child process by using child_tid */
 	if (child_tid == NULL) return -1;
-	// struct thread *curr = thread_current();
-	// struct list_elem *e;
-	// for (e = list_begin(&curr->children); e != list_end(&curr->children); e = list_next(e)) {
-	// 	struct child *child = list_entry(e, struct child, c_elem);
-	// 	if (child->tid == child_tid && !child->is_waited) {
-	// 		child->is_waited = true;
-	// 		if (!child->is_exit) sema_down(&child->c_sema);
-	// 		int status = child->exit_status;
-	// 		list_remove(&child->c_elem);
-	// 		free(child);
-	// 		return status;
-	// 	}
-	// }
 	struct child *child = get_child_by_tid(child_tid);
 	if (child == NULL) return -1;
 	if (!child->is_waited) {
@@ -375,10 +361,14 @@ process_exit (void) {
 	/* Close all file and deallocate the FDT */
 	for (int fd = 2; fd < 64; fd++) {
 		if (curr->fdt[fd] != NULL) {
+			lock_acquire(&filesys_lock);
 			file_close(curr->fdt[fd]);
+			lock_release(&filesys_lock);
 			curr->fdt[fd] = NULL;
 		}
 	}
+	file_close(curr->running_file);
+	// curr->running_file = NULL;
 
 	if (curr->child_info != NULL) {
 		curr->child_info->exit_status = curr->exit_status;
@@ -525,6 +515,8 @@ load (const char *file_name, struct intr_frame *if_) {
 		printf ("load: %s: open failed\n", file_name);
 		goto done;
 	}
+	file_deny_write(file);
+	t->running_file = file;
 
 	/* Read and verify executable header. */
 	if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
@@ -605,7 +597,7 @@ load (const char *file_name, struct intr_frame *if_) {
 
 done:
 	/* We arrive here whether the load is successful or not. */
-	file_close (file);
+	// file_close (file);
 	return success;
 }
 

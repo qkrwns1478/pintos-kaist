@@ -30,8 +30,6 @@ bool is_valid (const void *addr);
 #define MSR_LSTAR 0xc0000082        /* Long mode SYSCALL target */
 #define MSR_SYSCALL_MASK 0xc0000084 /* Mask for the eflags */
 
-struct lock filesys_lock;
-
 void
 syscall_init (void) {
 	write_msr(MSR_STAR, ((uint64_t)SEL_UCSEG - 0x10) << 48  |
@@ -107,6 +105,8 @@ void exit(int status) {
 	struct thread *curr = thread_current();
 	curr->exit_status = status;
     printf("%s: exit(%d)\n", curr->name, status);
+	if (curr->running_file)
+		file_allow_write(curr->running_file);
 	thread_exit();
 }
 
@@ -217,8 +217,10 @@ int write(int fd, const void *buffer, unsigned size) {
 	} else if (fd == 0) exit(-1); // fd0 is stdin (invalid)
 	else if (fd < 2 || fd > 63) exit(-1); // invalid fd
 	else {
-		struct file *file = thread_current()->fdt[fd];
+		struct thread *curr = thread_current();
+		struct file *file = curr->fdt[fd];
 		if (file == NULL) exit(-1);
+		if (curr->running_file == file) return 0;
 		lock_acquire(&filesys_lock);
 		off_t res = file_write(file, buffer, size);
 		lock_release(&filesys_lock);
@@ -258,6 +260,8 @@ void close (int fd) {
 	if (file == NULL) exit(-1);
 	curr->fdt[fd] = NULL;
 	// if (fd == curr->next_fd && curr->next_fd > 2) curr->next_fd--;
+	if (curr->running_file == file)
+		curr->running_file = NULL;
 	lock_acquire(&filesys_lock);
 	file_close(file);
 	lock_release(&filesys_lock);
