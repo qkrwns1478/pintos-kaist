@@ -462,6 +462,8 @@ init_thread (struct thread *t, const char *name, int priority) {
 	list_init(&t->children);
 	t->child_info = NULL;
 	t->parent = NULL;
+
+	t->running_file = NULL;
 #endif
 }
 

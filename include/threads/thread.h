@@ -129,6 +129,8 @@ struct thread {
 	struct thread *parent;				/* Parent of this thread */
 	struct list children;				/* List of children this thread has */
 	struct child *child_info;			/* Information of this thread as someone's child */
+
+	struct file *running_file;
 #endif
 #ifdef VM
 	/* Table for whole virtual memory owned by thread. */
