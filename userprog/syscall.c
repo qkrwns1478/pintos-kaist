@@ -156,7 +156,7 @@ int open (const char *filename) {
 	struct thread *curr = thread_current();
 	int fd;
 	bool is_not_full = false;
-	for(fd = 2; fd < 64; fd++) {
+	for(fd = 2; fd < FILED_MAX; fd++) {
 		if (curr->fdt[fd] == NULL) {
 			is_not_full = true;
 			break;

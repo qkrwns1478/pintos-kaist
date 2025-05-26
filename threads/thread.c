@@ -453,7 +453,7 @@ init_thread (struct thread *t, const char *name, int priority) {
 
 #ifdef USERPROG
 	/* Initializes FDT */
-	for (int i = 0; i < 64; i++) {
+	for (int i = 0; i < FILED_MAX; i++) {
 		t->fdt[i] = NULL;
 	}
 	/* Reserve fd0, fd1 for stdin, stdout */
@@ -865,6 +865,7 @@ struct child *init_child(tid_t tid) {
 	child->exit_status = 0;
 	child->is_waited = false;
 	child->is_exit = false;
+	child->fork_fail = false;
 	sema_init(&child->c_sema, 0);
 	return child;
 }

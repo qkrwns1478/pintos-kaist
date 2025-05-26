@@ -9,7 +9,6 @@
 #ifdef VM
 #include "vm/vm.h"
 #endif
-#define USERPROG true // for debugging
 
 /* States in a thread's life cycle. */
 enum thread_status {
@@ -32,6 +31,8 @@ typedef int tid_t;
 #define NICE_DEFAULT 0
 #define RECENT_CPU_DEFAULT 0
 #define LOAD_AVG_DEFAULT 0
+
+#define FILED_MAX 128					/* Maximum # of file descriptors. */
 
 /* A kernel thread or user process.
  *
@@ -122,8 +123,8 @@ struct thread {
 	uint64_t *pml4;                     /* Page map level 4 */
 
 	/* File Descriptor Table */
-	struct file *fdt[64];				/* List of pointer to struct file */
-	// int next_fd;						/* Should be between 2 and 63 */
+	struct file *fdt[FILED_MAX];				/* List of pointer to struct file */
+	// int next_fd;
 	
 	int exit_status;
 	struct thread *parent;				/* Parent of this thread */
@@ -148,6 +149,7 @@ struct child {
 	int exit_status;
 	bool is_waited;
 	bool is_exit;
+	bool fork_fail;
 	struct list_elem c_elem;
 	struct semaphore c_sema;
 };

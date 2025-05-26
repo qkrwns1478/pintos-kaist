@@ -110,6 +110,8 @@ process_fork (const char *name, struct intr_frame *if_) {
 	fa->child_info = child;
 
 	sema_down(&child->c_sema);  // Wait until child finishes __do_fork
+	if (child->fork_fail)
+		return TID_ERROR;
 	return tid;
 
 	// struct list_elem *e;
@@ -220,10 +222,17 @@ __do_fork (void *aux) {
 
 	/* TODO: Parent inherits file resources (e.g., opened file descriptor) to child */
 	/* Copy file descripters from parent to newly created process */
-	for (int i = 2; i < 64; i++) {
+	for (int i = 2; i < FILED_MAX; i++) {
 		if (parent->fdt[i] != NULL) current->fdt[i] = file_duplicate(parent->fdt[i]);
 		else current->fdt[i] = NULL;
 	}
+	// for (int i = 2; i < FILED_MAX; i++) {
+	// 	if (parent->fdt[i] != NULL) {
+	// 		struct file *dup = file_duplicate(parent->fdt[i]);
+	// 		if (dup != NULL) current->fdt[i] = dup;
+	// 	}
+	// 	else current->fdt[i] = NULL;
+	// }
 
 	// struct list_elem *e;
 	// for (e = list_begin(&parent->children); e != list_end(&parent->children); e = list_next(e)) {
@@ -241,7 +250,12 @@ __do_fork (void *aux) {
 	if (succ)
 		do_iret (&if_);
 error:
-	thread_exit ();
+	// thread_exit ();
+	if (current->child_info != NULL) {
+		current->child_info->fork_fail = true;
+		sema_up(&current->child_info->c_sema);
+	}
+	exit(-1);
 }
 
 /* Switch the current execution context to the f_name.
@@ -335,7 +349,7 @@ process_wait (tid_t child_tid UNUSED) {
 	// return -1;
 
 	/* Find child process by using child_tid */
-	if (child_tid == NULL) return -1;
+	if (child_tid == TID_ERROR) return -1;
 	struct child *child = get_child_by_tid(child_tid);
 	if (child == NULL) return -1;
 	if (!child->is_waited) {
@@ -359,7 +373,7 @@ process_exit (void) {
 	 * TODO: We recommend you to implement process resource cleanup here. */
 
 	/* Close all file and deallocate the FDT */
-	for (int fd = 2; fd < 64; fd++) {
+	for (int fd = 2; fd < FILED_MAX; fd++) {
 		if (curr->fdt[fd] != NULL) {
 			lock_acquire(&filesys_lock);
 			file_close(curr->fdt[fd]);
@@ -367,7 +381,9 @@ process_exit (void) {
 			curr->fdt[fd] = NULL;
 		}
 	}
+	lock_acquire(&filesys_lock);
 	file_close(curr->running_file);
+	lock_release(&filesys_lock);
 	// curr->running_file = NULL;
 
 	if (curr->child_info != NULL) {
