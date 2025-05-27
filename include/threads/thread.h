@@ -5,10 +5,10 @@
 #include <list.h>
 #include <stdint.h>
 #include "threads/interrupt.h"
+#include "threads/synch.h"
 #ifdef VM
 #include "vm/vm.h"
 #endif
-
 
 /* States in a thread's life cycle. */
 enum thread_status {
@@ -27,6 +27,12 @@ typedef int tid_t;
 #define PRI_MIN 0                       /* Lowest priority. */
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
+
+#define NICE_DEFAULT 0
+#define RECENT_CPU_DEFAULT 0
+#define LOAD_AVG_DEFAULT 0
+
+#define FILED_MAX 128					/* Maximum # of file descriptors. */
 
 /* A kernel thread or user process.
  *
@@ -108,9 +114,24 @@ struct thread {
 	/* Data structure for Nested Donation */
 	struct lock *wait_on_lock;			/* lock that it waits for */
 
+	/* Values for the advanced scheduler */
+	int nice;
+	int recent_cpu;
+
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4;                     /* Page map level 4 */
+
+	/* File Descriptor Table */
+	struct file *fdt[FILED_MAX];				/* List of pointer to struct file */
+	// int next_fd;
+	
+	int exit_status;
+	struct thread *parent;				/* Parent of this thread */
+	struct list children;				/* List of children this thread has */
+	struct child *child_info;			/* Information of this thread as someone's child */
+
+	struct file *running_file;
 #endif
 #ifdef VM
 	/* Table for whole virtual memory owned by thread. */
@@ -121,6 +142,18 @@ struct thread {
 	struct intr_frame tf;               /* Information for switching */
 	unsigned magic;                     /* Detects stack overflow. */
 };
+
+#ifdef USERPROG
+struct child {
+	tid_t tid;
+	int exit_status;
+	bool is_waited;
+	bool is_exit;
+	bool fork_fail;
+	struct list_elem c_elem;
+	struct semaphore c_sema;
+};
+#endif
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
@@ -165,5 +198,27 @@ bool cmp_priority_donate (const struct list_elem *a, const struct list_elem *b, 
 int get_highest_priority (void);
 void do_preemption (void);
 void thread_refresh_priority (void);
+
+int calc_priority(int recent_cpu, int nice);
+int calc_load_avg (void);
+int calc_recent_cpu (struct thread *t);
+int ready_threads (void);
+int itof(int n);
+int ftoi(int x);
+int add_xy(int x, int y);
+int sub_xy(int x, int y);
+int add_xn(int x, int n);
+int sub_xn(int x, int n);
+int mul_xy(int x, int y);
+int mul_xn(int x, int n);
+int div_xy(int x, int y);
+int div_xn(int x, int n);
+int read_sign_bit(int x);
+int write_sign_bit(int x, int s);
+
+#ifdef USERPROG
+struct child *init_child (tid_t tid);
+struct child *get_child_by_tid (tid_t tid);
+#endif
 
 #endif /* threads/thread.h */
