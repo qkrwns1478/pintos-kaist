@@ -4,6 +4,8 @@
 #include <stdbool.h>
 #include <debug.h>
 #include <stddef.h>
+#include "string.h"
+
 
 /* Process identifier. */
 typedef int pid_t;
@@ -77,5 +79,8 @@ get_fs_disk_write_cnt (void) {
 	asm volatile ("\t movq %%rax, %0": "=r" (write_cnt));
 	return write_cnt;
 }
+
+bool check_address(const void *addr);
+
 
 #endif /* lib/user/syscall.h */
