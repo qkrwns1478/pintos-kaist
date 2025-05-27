@@ -201,26 +201,23 @@ int get_highest_priority (void);
 void do_preemption (void);
 void thread_refresh_priority (void);
 
-int calc_priority(int recent_cpu, int nice);
-int calc_load_avg (void);
-int calc_recent_cpu (struct thread *t);
-int ready_threads (void);
-int itof(int n);
-int ftoi(int x);
-int add_xy(int x, int y);
-int sub_xy(int x, int y);
-int add_xn(int x, int n);
-int sub_xn(int x, int n);
-int mul_xy(int x, int y);
-int mul_xn(int x, int n);
-int div_xy(int x, int y);
-int div_xn(int x, int n);
-void mlfqs_priority (struct thread *t);
-void mlfqs_recent_cpu (struct thread *t);
-void mlfqs_increment (void);
-void mlfqs_update_load_avg (void);
-void mlfqs_update_recent_cpu (void);
-void mlfqs_update_priority_all (void);
+int itof (int n);
+int ftoi (int x);
+int add_xy (int x, int y);
+int sub_xy (int x, int y);
+int add_xn (int x, int n);
+int sub_xn (int x, int n);
+int mul_xy (int x, int y);
+int mul_xn (int x, int n);
+int div_xy (int x, int y);
+int div_xn (int x, int n);
+
+void calc_priority (struct thread *t);
+void calc_load_avg (void);
+void calc_recent_cpu (struct thread *t);
+void increment_recent_cpu (void);
+void update_recent_cpu (void);
+void update_priority (void);
 
 #ifdef USERPROG
 struct child *init_child (tid_t tid);
