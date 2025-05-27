@@ -3,6 +3,8 @@
 
 #include <stdbool.h>
 #include "threads/interrupt.h"
+#include "threads/init.h"
+
 typedef int pid_t;
 
 void syscall_init (void);
@@ -21,5 +23,6 @@ int write (int fd, const void *buffer, unsigned size);
 void seek (int fd, unsigned position);
 unsigned tell (int fd);
 void close (int fd);
+bool check_address(const void *addr);
 
 #endif /* userprog/syscall.h */
