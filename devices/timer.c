@@ -132,6 +132,15 @@ timer_interrupt (struct intr_frame *args UNUSED) {
 	ticks++;
 	thread_tick (); // update the cpu usage for running process
 
+	if (thread_mlfqs && get_idle_thread() != NULL) {
+		increment_recent_cpu();
+		if (timer_ticks() % 4 == 0) update_priority();
+		if (timer_ticks() % 100 == 0) {
+			calc_load_avg();
+			update_recent_cpu();
+		}
+	}
+
 	/* At every tick, check whether some thread must wake up from sleep queue and call wake up function. */
 	thread_wakeup(ticks);
 }
