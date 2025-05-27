@@ -198,6 +198,7 @@ bool cmp_tick (struct list_elem *a, struct list_elem *b, void *aux UNUSED);
 bool cmp_priority (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED);
 bool cmp_priority_donate (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED);
 int get_highest_priority (void);
+struct thread *get_idle_thread (void);
 void do_preemption (void);
 void thread_refresh_priority (void);
 

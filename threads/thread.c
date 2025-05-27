@@ -4,7 +4,6 @@
 #include <random.h>
 #include <stdio.h>
 #include <string.h>
-#include "devices/timer.h"
 #include "threads/flags.h"
 #include "threads/interrupt.h"
 #include "threads/intr-stubs.h"
@@ -739,6 +738,10 @@ int get_highest_priority (void) {
 	return res;
 }
 
+struct thread *get_idle_thread(void) {
+    return idle_thread;
+}
+
 void
 do_preemption (void) {
 	if (thread_mlfqs) return;
@@ -764,43 +767,43 @@ thread_refresh_priority (void) {
 
 /* Float Point Operations */
 
-int itof(int n) { /* int → fp */
+int itof(int n) { // int → fp
 	return n * F_ONE;
 }
 
-int ftoi(int x) { /* fp → int */ 
+int ftoi(int x) { // fp → int
 	return x / F_ONE;
 }
 
-int add_xy(int x, int y) { /* fp + fp */
+int add_xy(int x, int y) { // fp + fp
 	return x + y;
 }
 
-int sub_xy(int x, int y) { /* fp - fp */
+int sub_xy(int x, int y) { // fp - fp
 	return x - y;
 }
 
-int add_xn(int x, int n) { /* fp + int */
+int add_xn(int x, int n) { // fp + int
 	return x + n * F_ONE;
 }
 
-int sub_xn(int x, int n) { /* fp - int */
+int sub_xn(int x, int n) { // fp - int
 	return x - n * F_ONE;
 }
 
-int mul_xy(int x, int y) { /* fp × fp */
+int mul_xy(int x, int y) { // fp × fp
 	return (int)((((int64_t)x) * y) / F_ONE);
 }
 
-int mul_xn(int x, int n) { /* fp × int */
+int mul_xn(int x, int n) { // fp × int
 	return x * n;
 }
 
-int div_xy(int x, int y) { /* fp ÷ fp */
+int div_xy(int x, int y) { // fp ÷ fp
 	return (int)((((int64_t)x) * F_ONE) / y);
 }
 
-int div_xn(int x, int n) { /* fp ÷ int */
+int div_xn(int x, int n) { // fp ÷ int
 	return x / n;
 }
 
