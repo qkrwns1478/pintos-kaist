@@ -15,10 +15,10 @@ Executing 'lg-create':
 (lg-create) begin
 (lg-create) create "blargle"
 Execution of 'lg-create' complete.
-Timer: 409 ticks
-Thread: 33 idle ticks, 376 kernel ticks, 0 user ticks
+Timer: 389 ticks
+Thread: 32 idle ticks, 357 kernel ticks, 0 user ticks
 hd0:0: 0 reads, 0 writes
-hd0:1: 84 reads, 278 writes
+hd0:1: 84 reads, 320 writes
 hd1:0: 107 reads, 0 writes
 Console: 836 characters output
 Keyboard: 0 keys pressed

@@ -17,7 +17,7 @@ Page fault at 0x8004000000: rights violation error writing page in user context.
 bad-write2: dying due to interrupt 0x0e (#PF Page-Fault Exception).
 Interrupt 0x0e (#PF Page-Fault Exception) at rip=4000f6
  cr2=0000008004000000 error=               7
-rax 0000008004000000 rbx 00800420b4b30000 rcx 00000000000000ff rdx 0000000000000000
+rax 0000008004000000 rbx 00800420b4c00000 rcx 00000000000000ff rdx 0000000000000000
 rsp 000000004747ff88 rbp 000000004747ff88 rsi 000000000060508e rdi 000000000060517f
 rip 00000000004000f6 r8 0000000000000000  r9 0000000000000000 r10 0000000000000000
 r11 0000000000000206 r12 0001000000000000 r13 00800423fee00000 r14 008004228c080000
@@ -25,8 +25,8 @@ r15 0000000002400000 rflags 00000212
 es: 001b ds: 001b cs: 0023 ss: 001b
 bad-write2: exit(0)
 Execution of 'bad-write2' complete.
-Timer: 415 ticks
-Thread: 32 idle ticks, 382 kernel ticks, 1 user ticks
+Timer: 401 ticks
+Thread: 32 idle ticks, 368 kernel ticks, 1 user ticks
 hd0:0: 0 reads, 0 writes
 hd0:1: 80 reads, 232 writes
 hd1:0: 102 reads, 0 writes

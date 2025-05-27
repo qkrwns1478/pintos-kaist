@@ -17,7 +17,7 @@ Page fault at 0: not present error reading page in user context.
 bad-read: dying due to interrupt 0x0e (#PF Page-Fault Exception).
 Interrupt 0x0e (#PF Page-Fault Exception) at rip=4000f1
  cr2=0000000000000000 error=               4
-rax 0000000000000000 rbx 00800420b4b30000 rcx 00000000000000ff rdx 0000000000000000
+rax 0000000000000000 rbx 00800420b4c00000 rcx 00000000000000ff rdx 0000000000000000
 rsp 000000004747ff88 rbp 000000004747ff88 rsi 00000000006050ee rdi 00000000006051df
 rip 00000000004000f1 r8 0000000000000000  r9 0000000000000000 r10 0000000000000000
 r11 0000000000000206 r12 0001000000000000 r13 00800423fee00000 r14 008004228c080000
@@ -25,8 +25,8 @@ r15 0000000002400000 rflags 00000212
 es: 001b ds: 001b cs: 0023 ss: 001b
 bad-read: exit(0)
 Execution of 'bad-read' complete.
-Timer: 391 ticks
-Thread: 33 idle ticks, 358 kernel ticks, 0 user ticks
+Timer: 382 ticks
+Thread: 32 idle ticks, 350 kernel ticks, 0 user ticks
 hd0:0: 0 reads, 0 writes
 hd0:1: 80 reads, 234 writes
 hd1:0: 103 reads, 0 writes

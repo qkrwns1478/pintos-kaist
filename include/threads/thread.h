@@ -1,9 +1,10 @@
 #ifndef THREADS_THREAD_H
 #define THREADS_THREAD_H
-
+#define FDCOUNT_LIMIT 128
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include "threads/synch.h"
 #include "threads/interrupt.h"
 #ifdef VM
 #include "vm/vm.h"
@@ -85,12 +86,34 @@ typedef int tid_t;
  * only because they are mutually exclusive: only a thread in the
  * ready state is on the run queue, whereas only a thread in the
  * blocked state is on a semaphore wait list. */
+
+
+struct child {
+	tid_t tid;
+	int exit_status; // 자식 종료 코드
+	bool has_exited; // 자식 종료 여부 확인
+	bool waited;	 // wait 여부
+	bool fork_fail;  // fork 실패 여부
+	struct semaphore c_sema;  // 자식이 fork 준비 완료 시 부모를 깨움
+	struct list_elem c_elem;  // children 리스트 연결
+};
+
+
 struct thread {
 	/* Owned by thread.c. */
 	tid_t tid;                          /* Thread identifier. */
 	enum thread_status status;          /* Thread state. */
 	char name[16];                      /* Name (for debugging purposes). */
 	int priority;                       /* Priority. */
+	int exit_status;
+	struct thread *parent; // 부모 스레드 포인터 @@
+	struct child *child_info; // 부모가 가진 child 포인터
+	struct list children; // 자식 리스트
+	
+
+	struct file **fd_table; //파일 디스크립터 테이블(동적 배열)
+	int next_fd;						// 다음에 할당할 fd 번호
+	
 
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
@@ -112,6 +135,7 @@ struct thread {
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4;                     /* Page map level 4 */
 #endif
+
 #ifdef VM
 	/* Table for whole virtual memory owned by thread. */
 	struct supplemental_page_table spt;
@@ -167,3 +191,4 @@ void do_preemption (void);
 void thread_refresh_priority (void);
 
 #endif /* threads/thread.h */
+

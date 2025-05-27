@@ -185,7 +185,7 @@ thread_print_stats (void) {
 tid_t
 thread_create (const char *name, int priority,
 		thread_func *function, void *aux) {
-	struct thread *t;
+	struct thread *t = palloc_get_page(PAL_ZERO);
 	tid_t tid;
 
 	ASSERT (function != NULL);
@@ -198,6 +198,9 @@ thread_create (const char *name, int priority,
 	/* Initialize thread. */
 	init_thread (t, name, priority);
 	tid = t->tid = allocate_tid ();
+
+	list_init(&t->children);
+
 
 	/* Call the kernel_thread if it scheduled.
 	 * Note) rdi is 1st argument, and rsi is 2nd argument. */
@@ -330,7 +333,9 @@ thread_set_priority (int new_priority) {
 	thread_current ()->priority_ori = new_priority; // Set priority of the current thread
 	// list_sort(&ready_list, cmp_priority, NULL); // Reorder the ready_list
 	thread_refresh_priority();
-	do_preemption();
+	if (!intr_context ()){
+		do_preemption();\
+	}
 }
 
 /* Returns the current thread's priority. */
@@ -688,7 +693,7 @@ int get_highest_priority (void) {
 
 void
 do_preemption (void) {
-	if (!list_empty (&ready_list)) {
+	if (!list_empty (&ready_list) && !intr_context ()) {
 		struct thread *front = list_entry(list_front(&ready_list), struct thread, elem);
 		if (thread_get_priority() < front->priority)
 			thread_yield ();

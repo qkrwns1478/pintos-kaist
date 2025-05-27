@@ -1,18 +1,9 @@
 FAIL
-Test output failed to match any acceptable form.
-
-Acceptable output:
-  (fork-once) begin
-  (fork-once) child run
-  child: exit(81)
-  (fork-once) Parent: child exit status is 81
-  (fork-once) end
-  fork-once: exit(0)
-Differences in `diff -u' format:
-  (fork-once) begin
-- (fork-once) child run
-- child: exit(81)
-- (fork-once) Parent: child exit status is 81
-- (fork-once) end
-- fork-once: exit(0)
-+ fork-once: exit(-1)
+Kernel panic in run: PANIC at ../../userprog/exception.c:97 in kill(): Kernel bug - unexpected interrupt in kernel
+Call stack: 0x8004217d7d 0x800421cac9 0x8004208d7d 0x800420919b 0x80042073d6
+Translation of call stack:
+0x0000008004217d7d: debug_panic (lib/kernel/debug.c:32)
+0x000000800421cac9: kill (userprog/exception.c:103)
+0x0000008004208d7d: intr_handler (threads/interrupt.c:352)
+0x000000800420919b: intr_entry (threads/intr-stubs.o:?)
+0x00000080042073d6: kernel_thread (threads/thread.c:424)

@@ -59,14 +59,14 @@ filesys_done (void) {
  * or if internal memory allocation fails. */
 bool
 filesys_create (const char *name, off_t initial_size) {
-	disk_sector_t inode_sector = 0;
-	struct dir *dir = dir_open_root ();
-	bool success = (dir != NULL
-			&& free_map_allocate (1, &inode_sector)
-			&& inode_create (inode_sector, initial_size)
-			&& dir_add (dir, name, inode_sector));
-	if (!success && inode_sector != 0)
-		free_map_release (inode_sector, 1);
+	disk_sector_t inode_sector = 0; 						// inode가 저장될 디스크 섹터 번호(초기값 0)
+	struct dir *dir = dir_open_root ();			     		// 루트 디렉토리 열기
+	bool success = (dir != NULL  					    	// 디렉토리를 성공적으로 열었고
+			&& free_map_allocate (1, &inode_sector)         // inode를 위한 디스크 공간 1 클러스터 할당
+			&& inode_create (inode_sector, initial_size)    // 해당 클러스터에 inode 생성(파일크기 설정)
+			&& dir_add (dir, name, inode_sector));	    	// 디렉토리에 파일 이름과 inode 연결 정보를 추가했으면 성공
+	if (!success && inode_sector != 0)		            	// 만약 중간에 실패했고 inode 클러스터가 할당되었다면
+		free_map_release (inode_sector, 1);	            	// 할당된 클러스터를 다시 반환한다. (메모리 누수 방지)
 	dir_close (dir);
 
 	return success;

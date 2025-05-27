@@ -15,12 +15,12 @@ Executing 'syn-remove':
 (syn-remove) begin
 (syn-remove) create "deleteme"
 Execution of 'syn-remove' complete.
-Timer: 383 ticks
-Thread: 35 idle ticks, 348 kernel ticks, 0 user ticks
+Timer: 397 ticks
+Thread: 32 idle ticks, 365 kernel ticks, 0 user ticks
 hd0:0: 0 reads, 0 writes
-hd0:1: 99 reads, 260 writes
+hd0:1: 103 reads, 260 writes
 hd1:0: 109 reads, 0 writes
-Console: 844 characters output
+Console: 845 characters output
 Keyboard: 0 keys pressed
 Exception: 0 page faults
 Powering off...

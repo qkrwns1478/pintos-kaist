@@ -15,10 +15,10 @@ Executing 'sm-seq-block':
 (sm-seq-block) begin
 (sm-seq-block) create "noodle"
 Execution of 'sm-seq-block' complete.
-Timer: 407 ticks
-Thread: 34 idle ticks, 373 kernel ticks, 0 user ticks
+Timer: 399 ticks
+Thread: 33 idle ticks, 366 kernel ticks, 0 user ticks
 hd0:0: 0 reads, 0 writes
-hd0:1: 98 reads, 265 writes
+hd0:1: 96 reads, 265 writes
 hd1:0: 107 reads, 0 writes
 Console: 856 characters output
 Keyboard: 0 keys pressed

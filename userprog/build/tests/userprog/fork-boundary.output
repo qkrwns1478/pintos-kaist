@@ -13,14 +13,29 @@ Boot complete.
 Putting 'fork-boundary' into the file system...
 Executing 'fork-boundary':
 (fork-boundary) begin
-fork-boundary: exit(-1)
-Execution of 'fork-boundary' complete.
-Timer: 452 ticks
-Thread: 34 idle ticks, 418 kernel ticks, 0 user ticks
+Page fault at 0xffffffffffffffc8: not present error reading page in kernel context.
+Interrupt 0x0e (#PF Page-Fault Exception) at rip=800421c617
+ cr2=ffffffffffffffc8 error=               0
+rax ffffffffffffffc8 rbx 00800420b4c00000 rcx 0000008004249060 rdx 000000000000001f
+rsp 000000800423fe30 rbp 000000800423fe60 rsi 0000008004249060 rdi 000000800423f030
+rip 000000800421c617 r8 0000000000000000  r9 0000000000000000 r10 0000000000000000
+r11 0000000000000202 r12 000000800421cca1 r13 00800423fee00000 r14 008004228c080000
+r15 0000000002400000 rflags 00000283
+es: 001b ds: 001b cs: 0008 ss: 0010
+Kernel PANIC at ../../userprog/exception.c:97 in kill(): Kernel bug - unexpected interrupt in kernel
+Call stack: 0x8004217d51 0x800421c9ec 0x800421cb6b 0x8004208d51 0x800420916f 0x800421b50b 0x800421d409 0x800421cf2c 0x800421cbe0 0x400115 0x400302 0x400da3 0Interrupt 0x0d (#GP General Protection Exception) at rip=8004214d8b
+ cr2=ffffffffffffffc8 error=               0
+rax 00800423f0000000 rbx 00800420b4c00000 rcx 00000080040b8000 rdx 00000000000003d4
+rsp 000000800423fc30 rbp 000000800423fc40 rsi 000000000000cd0f rdi 0000000000000000
+rip 0000008004214d8b r8 000000800423fb48  r9 000000800421b1ca r10 0000000000000000
+r11 0000000000000202 r12 000000800421cca1 r13 00800423fee00000 r14 008004228c080000
+r15 0000000002400000 rflags 00000006
+es: 0010 ds: 0010 cs: 0008 ss: 0010
+Kernel PANIC recursion at ../../userprog/exception.c:97 in kill().
+Timer: 247 ticks
+Thread: 32 idle ticks, 215 kernel ticks, 0 user ticks
 hd0:0: 0 reads, 0 writes
 hd0:1: 80 reads, 240 writes
 hd1:0: 106 reads, 0 writes
-Console: 855 characters output
-Keyboard: 0 keys pressed
-Exception: 0 page faults
-Powering off...
+Console: 2235 characters output
+Key
