@@ -38,6 +38,8 @@ struct hash_elem {
 #define hash_entry(HASH_ELEM, STRUCT, MEMBER)                   \
 	((STRUCT *) ((uint8_t *) &(HASH_ELEM)->list_elem        \
 		- offsetof (STRUCT, MEMBER.list_elem)))
+#define list_elem_to_hash_elem(LIST_ELEM)                       \
+	list_entry(LIST_ELEM, struct hash_elem, list_elem)
 
 /* Computes and returns the hash value for hash element E, given
  * auxiliary data AUX. */
@@ -75,6 +77,9 @@ struct hash_iterator {
 bool hash_init (struct hash *, hash_hash_func *, hash_less_func *, void *aux);
 void hash_clear (struct hash *, hash_action_func *);
 void hash_destroy (struct hash *, hash_action_func *);
+
+void insert_elem (struct hash *, struct list *, struct hash_elem *);
+void rehash (struct hash *);
 
 /* Search, insertion, deletion. */
 struct hash_elem *hash_insert (struct hash *, struct hash_elem *);
