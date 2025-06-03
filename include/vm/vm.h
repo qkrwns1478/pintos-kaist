@@ -50,6 +50,7 @@ struct page {
 
 	/* Your implementation */
 	struct hash_elem hash_elem; /* Hash table element. */
+	bool writable;
 
 	/* Per-type data are binded into the union.
 	 * Each function automatically detects the current union */
@@ -89,9 +90,7 @@ struct page_operations {
  * We don't want to force you to obey any specific design for this struct.
  * All designs up to you for this. */
 struct supplemental_page_table {
-	struct hash *spt_hash;
-	// struct list *frame_table;
-	// struct bitmap *swap_slot;
+	struct hash spt_hash;
 };
 
 #include "threads/thread.h"
