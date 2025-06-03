@@ -15,7 +15,7 @@
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
-bool is_valid (const void *addr);
+bool check_address (const void *addr);
 
 /* System call.
  *
@@ -112,13 +112,13 @@ void exit(int status) {
 
 /* Create new process which is the clone of current process with the name THREAD_NAME. */
 pid_t fork (const char *thread_name, struct intr_frame *f) {
-	if (!is_valid(thread_name)) exit(-1);
+	if (!check_address(thread_name)) exit(-1);
 	return process_fork(thread_name, f);
 }
 
 /* Create child process and execute program corresponds to cmd_file on it. */
 int exec (const char *cmd_line) {
-	if (!is_valid(cmd_line)) exit(-1);
+	if (!check_address(cmd_line)) exit(-1);
 	// if (process_exec(cmd_line) == -1) exit(-1);
 	char *buf = palloc_get_page(PAL_ZERO);
 	if (buf == NULL) exit(-1);
@@ -134,7 +134,7 @@ int wait (pid_t pid) {
 
 /* Create file which have size of initial_size. */
 bool create (const char *file, unsigned initial_size) {
-	if (!is_valid(file)) exit(-1);
+	if (!check_address(file)) exit(-1);
 	lock_acquire(&filesys_lock);
 	bool res = filesys_create(file, initial_size);
 	lock_release(&filesys_lock);
@@ -143,7 +143,7 @@ bool create (const char *file, unsigned initial_size) {
 
 /* Remove file whose name is file. */
 bool remove (const char *file) {
-	if (!is_valid(file)) exit(-1);
+	if (!check_address(file)) exit(-1);
 	lock_acquire(&filesys_lock);
 	bool res = filesys_remove(file);
 	lock_release(&filesys_lock);
@@ -152,7 +152,7 @@ bool remove (const char *file) {
 
 /* Open the file corresponds to path in "file". */
 int open (const char *filename) {
-	if (!is_valid(filename)) exit(-1);
+	if (!check_address(filename)) exit(-1);
 	struct thread *curr = thread_current();
 	int fd;
 	bool is_not_full = false;
@@ -188,7 +188,7 @@ int filesize (int fd) {
 /* Read size bytes from the file open as fd into buffer. */
 int read (int fd, void *buffer, unsigned size) {
 	if (size == 0) return 0;
-	if (!is_valid(buffer)) exit(-1);
+	if (!check_address(buffer)) exit(-1);
 	if (fd == 0) { // fd0 is stdin
 		char *buf = (char *) buffer;
 		for (int i = 0; i < size; i++) {
@@ -210,7 +210,7 @@ int read (int fd, void *buffer, unsigned size) {
 
 /* Writes size bytes from buffer to the open file fd. */
 int write(int fd, const void *buffer, unsigned size) {
-	if (!is_valid(buffer)) exit(-1);
+	if (!check_address(buffer)) exit(-1);
 	if(fd == 1) { // fd1 is stdout
 		putbuf(buffer, size);
 		return size;
@@ -267,7 +267,7 @@ void close (int fd) {
 	lock_release(&filesys_lock);
 }
 
-bool is_valid(const void *addr) {
+bool check_address(const void *addr) {
 	if (addr == NULL) return false;
 	if (!is_user_vaddr(addr)) return false;
 	if (pml4_get_page(thread_current()->pml4, addr) == NULL) return false;
