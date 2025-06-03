@@ -767,6 +767,16 @@ lazy_load_segment (struct page *page, void *aux) {
 	/* TODO: Load the segment from the file */
 	/* TODO: This called when the first page fault occurs on address VA. */
 	/* TODO: VA is available when calling this function. */
+	// 이 함수는 실행 파일의 페이지의 초기화 함수로, 페이지 폴트에서 실행된다.
+	// aux를 통해 세그먼트를 읽을 파일을 찾고 메모리에 세그먼트를 읽어들인다.
+	struct lazy_load_args *lla = (struct lazy_load_args *) aux;
+	/* READ_BYTES bytes at UPAGE must be read from FILE starting at offset OFS. */
+	off_t segment = file_read_at(lla->file, page->frame->kva, lla->read_bytes, lla->ofs);
+	if (segment == NULL)
+		return false;
+	/* ZERO_BYTES bytes at UPAGE + READ_BYTES must be zeroed. */
+	memset(page->frame->kva + lla->read_bytes, 0, lla->zero_bytes);
+	return true;
 }
 
 /* Loads a segment starting at offset OFS in FILE at address
@@ -798,9 +808,14 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
 		/* TODO: Set up aux to pass information to the lazy_load_segment. */
-		void *aux = NULL;
-		if (!vm_alloc_page_with_initializer (VM_ANON, upage,
-					writable, lazy_load_segment, aux))
+		// struct lazy_load_args *aux = palloc_get_page(PAL_USER);
+		struct lazy_load_args *aux = (struct lazy_load_args *)malloc(sizeof(struct lazy_load_args));
+		aux->file = file;
+		aux->ofs = ofs;
+		aux->read_bytes = read_bytes;
+		aux->zero_bytes = zero_bytes;
+		// aux->upage = upage;
+		if (!vm_alloc_page_with_initializer (VM_ANON, upage, writable, lazy_load_segment, aux))
 			return false;
 
 		/* Advance. */
@@ -821,7 +836,21 @@ setup_stack (struct intr_frame *if_) {
 	 * TODO: If success, set the rsp accordingly.
 	 * TODO: You should mark the page is stack. */
 	/* TODO: Your code goes here */
-
+	// The first stack page need not be allocated lazily.
+	// You can allocate and initialize it with the command line arguments at load time, with no need to wait for it to be faulted in.
+	// You might need to provide the way to identify the stack.
+	// You can use the auxillary markers in vm_type of vm/vm.h (e.g. VM_MARKER_0) to mark the page.
+	success = vm_claim_page(stack_bottom);
+	// struct page *kpage = palloc_get_page(PAL_USER | PAL_ZERO); // VM_MARKER_0?
+	// struct page *kpage = (struct page *)malloc(sizeof(struct page));
+	// kpage->va = stack_bottom;
+	// struct thread *t = thread_current();
+	// uint8_t *upage = ((uint8_t *) USER_STACK) - PGSIZE;
+	// success = (pml4_get_page (t->pml4, upage) == NULL && pml4_set_page (t->pml4, upage, kpage, pml4_is_writable(t->pml4, kpage)));
+	if (success)
+		if_->rsp = USER_STACK;
+	// else
+	// 	palloc_free_page(kpage);
 	return success;
 }
 #endif /* VM */
