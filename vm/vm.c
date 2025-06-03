@@ -1,6 +1,7 @@
 /* vm.c: Generic interface for virtual memory objects. */
-
+#include <hash.h>
 #include "threads/malloc.h"
+#include "threads/mmu.h"
 #include "vm/vm.h"
 #include "vm/inspect.h"
 
@@ -32,17 +33,48 @@ page_get_type (struct page *page) {
 	}
 }
 
+struct hash pages;
+
+unsigned page_hash (const struct hash_elem *p_, void *aux UNUSED);
+bool page_less (const struct hash_elem *a_, const struct hash_elem *b_, void *aux UNUSED);
+struct page *page_lookup (const void *address);
+
+/* Returns a hash value for page p. */
+unsigned
+page_hash (const struct hash_elem *p_, void *aux UNUSED) {
+	const struct page *p = hash_entry (p_, struct page, hash_elem);
+	return hash_bytes (&p->va, sizeof p->va);
+}
+
+bool
+page_less (const struct hash_elem *a_, const struct hash_elem *b_, void *aux UNUSED) {
+	const struct page *a = hash_entry (a_, struct page, hash_elem);
+	const struct page *b = hash_entry (b_, struct page, hash_elem);
+	return a->va < b->va;
+}
+
+/* Returns the page containing the given virtual address, or a null pointer if no such page exists. */
+struct page *
+page_lookup (const void *address) {
+	struct page p;
+	struct hash_elem *e;
+
+	p.va = address;
+	e = hash_find (&pages, &p.hash_elem);
+	return e != NULL ? hash_entry (e, struct page, hash_elem) : NULL;
+}
+
 /* Helpers */
 static struct frame *vm_get_victim (void);
 static bool vm_do_claim_page (struct page *page);
 static struct frame *vm_evict_frame (void);
+static void spt_kill_destructor (struct hash_elem *h, void *aux UNUSED);
 
 /* Create the pending page object with initializer. If you want to create a
  * page, do not create it directly and make it through this function or
  * `vm_alloc_page`. */
 bool
-vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
-		vm_initializer *init, void *aux) {
+vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable, vm_initializer *init, void *aux) {
 
 	ASSERT (VM_TYPE(type) != VM_UNINIT)
 
@@ -53,8 +85,22 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		/* TODO: Create the page, fetch the initialier according to the VM type,
 		 * TODO: and then create "uninit" page struct by calling uninit_new. You
 		 * TODO: should modify the field after calling the uninit_new. */
+		// struct page *p = palloc_get_page(PAL_USER);
+		struct page *p = (struct page *)malloc(sizeof(struct page));
+		if (VM_TYPE(type) == VM_ANON)
+			uninit_new(p, upage, init, type, aux, anon_initializer); //(p, type, p->frame->kva)
+		else if (VM_TYPE(type) == VM_FILE)
+			uninit_new(p, upage, init, type, aux, file_backed_initializer);
+		
+		/* Set writable bit */
+		// pml4_set_writable(thread_current()->pml4, upage, writable);
+		p->writable = writable;
 
 		/* TODO: Insert the page into the spt. */
+		// return vm_claim_page(upage);
+		if (!spt_insert_page(spt, p))
+			return false;
+		return true;
 	}
 err:
 	return false;
@@ -65,17 +111,38 @@ struct page *
 spt_find_page (struct supplemental_page_table *spt UNUSED, void *va UNUSED) {
 	struct page *page = NULL;
 	/* TODO: Fill this function. */
-
-	return page;
+	// int key = hash_bytes(&va, sizeof(va)) % spt->spt_hash->bucket_cnt;
+	// struct list *bucket = &spt->spt_hash->buckets[key];
+	// for (struct list_elem *e = list_begin(bucket); e != list_end(bucket); e = list_next(e)) {
+	// 	struct hash_elem *he = list_elem_to_hash_elem(e);
+	// 	struct page *p = hash_entry(he, struct page, hash_elem);
+	// 	if (p->va == va)
+	// 		return p;
+	// }
+	// return page;
+	if(spt == NULL || va == NULL) return NULL;
+	page = malloc(sizeof(struct page));
+	page->va = pg_round_down(va);
+    struct hash_elem *e = hash_find(&spt->spt_hash, &page->hash_elem);
+	// struct page tmp;
+    // tmp.va = pg_round_down(va);
+    // struct hash_elem *e = hash_find(&spt->spt_hash, &tmp.hash_elem);
+	if (e != NULL) return hash_entry(e, struct page, hash_elem);
+	else return NULL;
 }
 
 /* Insert PAGE into spt with validation. */
 bool
-spt_insert_page (struct supplemental_page_table *spt UNUSED,
-		struct page *page UNUSED) {
-	int succ = false;
+spt_insert_page (struct supplemental_page_table *spt UNUSED, struct page *page UNUSED) {
+	bool succ = false;
 	/* TODO: Fill this function. */
-
+	// if (spt_find_page(spt, page->va) == NULL) {
+	// 	// hash_insert_with_va(&spt->spt_hash, &page->hash_elem, &page->va);
+	// 	hash_insert(&spt->spt_hash, &page->hash_elem);
+	// 	succ = true;
+	// }
+	if (hash_insert(&spt->spt_hash, &page->hash_elem) == NULL)
+		succ = true;
 	return succ;
 }
 
@@ -112,6 +179,13 @@ static struct frame *
 vm_get_frame (void) {
 	struct frame *frame = NULL;
 	/* TODO: Fill this function. */
+	void *kva = palloc_get_page(PAL_USER);
+    if (kva == NULL)
+        PANIC("todo");
+	
+	frame = (struct frame *)malloc(sizeof(struct frame));
+	frame->kva = kva;
+	frame->page = NULL;
 
 	ASSERT (frame != NULL);
 	ASSERT (frame->page == NULL);
@@ -130,14 +204,19 @@ vm_handle_wp (struct page *page UNUSED) {
 
 /* Return true on success */
 bool
-vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
-		bool user UNUSED, bool write UNUSED, bool not_present UNUSED) {
+vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED, bool user UNUSED, bool write UNUSED, bool not_present UNUSED) {
 	struct supplemental_page_table *spt UNUSED = &thread_current ()->spt;
 	struct page *page = NULL;
 	/* TODO: Validate the fault */
 	/* TODO: Your code goes here */
-
-	return vm_do_claim_page (page);
+	/* Modify this function to resolve the page struct corresponding to the faulted address
+	 * by consulting to the supplemental page table through spt_find_page. */
+    if (addr == NULL || is_kernel_vaddr(addr) || !not_present)
+		return false;
+	page = spt_find_page(spt, addr);
+    if (page == NULL || (write && !page->writable))
+		return false;
+    return vm_do_claim_page(page);
 }
 
 /* Free the page.
@@ -153,7 +232,17 @@ bool
 vm_claim_page (void *va UNUSED) {
 	struct page *page = NULL;
 	/* TODO: Fill this function */
-
+	/* 1. 특정 가상 주소에 대해 페이지를 할당하고, 해당 페이지에 프레임을 매핑함
+	 * 2. spt_find_page(spt, va)로 해당 주소에 이미 page가 있는지 확인
+	 * 3. 있으면 그 page를 대상으로 vm_do_claim_page() 호출
+	 * 4. 없으면 새로운 page를 만들어 spt_insert_page() 후 vm_do_claim_page() 호출 */
+	if (va == NULL) return false;
+	page = spt_find_page(&thread_current()->spt, va);
+	if (page == NULL) {
+		// page = (struct page *)malloc(sizeof(struct page));
+		// page->va = va;
+		return false;
+	}
 	return vm_do_claim_page (page);
 }
 
@@ -161,12 +250,19 @@ vm_claim_page (void *va UNUSED) {
 static bool
 vm_do_claim_page (struct page *page) {
 	struct frame *frame = vm_get_frame ();
+	if (frame == NULL)
+		return false;
 
 	/* Set links */
 	frame->page = page;
 	page->frame = frame;
 
 	/* TODO: Insert page table entry to map page's VA to frame's PA. */
+	/* Add the mapping from the VA to the PA in the page table. */
+	// page->frame->kva = pml4_get_page(thread_current()->pml4, page->va);
+	struct thread *curr = thread_current();
+	if (!pml4_set_page(curr->pml4, page->va, frame->kva, page->writable))
+		return false;
 
 	return swap_in (page, frame->kva);
 }
@@ -174,12 +270,24 @@ vm_do_claim_page (struct page *page) {
 /* Initialize new supplemental page table */
 void
 supplemental_page_table_init (struct supplemental_page_table *spt UNUSED) {
+	// spt->spt_hash = malloc(sizeof (struct hash));
+	hash_init (&spt->spt_hash, page_hash, page_less, NULL);
 }
 
 /* Copy supplemental page table from src to dst */
 bool
-supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
-		struct supplemental_page_table *src UNUSED) {
+supplemental_page_table_copy (struct supplemental_page_table *dst, struct supplemental_page_table *src) {
+	// memcpy(&dst->spt_hash, &src->spt_hash, sizeof(struct supplemental_page_table));
+    hash_init(&dst->spt_hash, page_hash, page_less, NULL);
+    struct hash_iterator i;
+    hash_first(&i, &src->spt_hash);
+    while (hash_next(&i)) {
+        struct page *src_page = hash_entry(hash_cur(&i), struct page, hash_elem);
+        struct page *dst_page = (struct page *)malloc(sizeof(struct page));
+        memcpy(dst_page, src_page, sizeof(struct page));
+        hash_insert(&dst->spt_hash, &dst_page->hash_elem);
+    }
+    return true;
 }
 
 /* Free the resource hold by the supplemental page table */
@@ -187,4 +295,11 @@ void
 supplemental_page_table_kill (struct supplemental_page_table *spt UNUSED) {
 	/* TODO: Destroy all the supplemental_page_table hold by thread and
 	 * TODO: writeback all the modified contents to the storage. */
+	hash_clear(&spt->spt_hash, spt_kill_destructor);
+}
+
+static void spt_kill_destructor (struct hash_elem *h, void *aux UNUSED) {
+	struct page *page = hash_entry(h, struct page, hash_elem);
+	destroy(page);
+	free(page);
 }
