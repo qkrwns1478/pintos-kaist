@@ -12,10 +12,17 @@
 #include "filesys/filesys.h"
 #include "threads/vaddr.h"
 #include "threads/synch.h"
+#ifdef VM
+#include "vm/vm.h"
+#endif
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
+#ifndef VM
 bool check_address (const void *addr);
+#else
+struct page *check_address (const void *addr);
+#endif
 
 /* System call.
  *
@@ -119,7 +126,6 @@ pid_t fork (const char *thread_name, struct intr_frame *f) {
 /* Create child process and execute program corresponds to cmd_file on it. */
 int exec (const char *cmd_line) {
 	if (!check_address(cmd_line)) exit(-1);
-	// if (process_exec(cmd_line) == -1) exit(-1);
 	char *buf = palloc_get_page(PAL_ZERO);
 	if (buf == NULL) exit(-1);
 	strlcpy(buf, cmd_line, PGSIZE);
@@ -267,9 +273,19 @@ void close (int fd) {
 	lock_release(&filesys_lock);
 }
 
+#ifndef VM
 bool check_address(const void *addr) {
-	if (addr == NULL) return false;
-	if (!is_user_vaddr(addr)) return false;
-	if (pml4_get_page(thread_current()->pml4, addr) == NULL) return false;
+	if (addr == NULL || !is_user_vaddr(addr) || pml4_get_page(thread_current()->pml4, addr) == NULL) 
+		return false;
 	return true;
 }
+#else
+struct page *check_address (const void *addr) {
+    if (is_kernel_vaddr(addr) || addr == NULL)
+        exit(-1);
+	struct page *page = spt_find_page(&thread_current()->spt, addr);
+	if (page == NULL)
+		exit(-1);
+    return page;
+}
+#endif

@@ -765,9 +765,7 @@ static bool
 lazy_load_segment (struct page *page, void *aux) {
 	/* TODO: Load the segment from the file
 	 * TODO: This called when the first page fault occurs on address VA.
-	 * TODO: VA is available when calling this function.
-	 * 이 함수는 실행 파일의 페이지의 초기화 함수로, 페이지 폴트에서 실행된다.
-	 * aux를 통해 세그먼트를 읽을 파일을 찾고 메모리에 세그먼트를 읽어들인다. */
+	 * TODO: VA is available when calling this function. */
 	struct lazy_load_args *lla = (struct lazy_load_args *) aux;
 	/* READ_BYTES bytes at UPAGE must be read from FILE starting at offset OFS. */
 	off_t segment = file_read_at(lla->file, page->frame->kva, lla->read_bytes, lla->ofs);
