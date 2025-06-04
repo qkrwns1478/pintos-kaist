@@ -113,16 +113,6 @@ process_fork (const char *name, struct intr_frame *if_) {
 	if (child->fork_fail)
 		return TID_ERROR;
 	return tid;
-
-	// struct list_elem *e;
-	// for (e = list_begin(&curr->children); e != list_end(&curr->children); e = list_next(e)) {
-	// 	struct child *ch = list_entry(e, struct child, c_elem);
-	// 	if (ch->tid == tid) {
-	// 		sema_down(&ch->c_sema);
-	// 		break;
-	// 	}
-	// }
-	// return tid;
 }
 
 #ifndef VM
@@ -181,15 +171,6 @@ __do_fork (void *aux) {
 	current->child_info = fa->child_info;
 	current->child_info->tid = current->tid;
 
-	// struct list_elem *e;
-	// for (e = list_begin(&parent->children); e != list_end(&parent->children); e = list_next(e)) {
-	// 	struct child *ch = list_entry(e, struct child, c_elem);
-	// 	if (ch->tid == current->tid) {
-	// 		current->child_info = ch;
-	// 		break;
-	// 	}
-	// }
-
 	struct intr_frame *parent_if = fa->pf;
 	bool succ = true;
 
@@ -231,15 +212,6 @@ __do_fork (void *aux) {
 		else current->fdt[i] = NULL;
 	}
 
-	// struct list_elem *e;
-	// for (e = list_begin(&parent->children); e != list_end(&parent->children); e = list_next(e)) {
-	// 	struct child *ch = list_entry(e, struct child, c_elem);
-	// 	if (ch->tid == current->tid) {
-	// 		sema_up(&ch->c_sema);
-	// 		break;
-	// 	}
-	// }
-
 	palloc_free_page(fa);
 	sema_up(&current->child_info->c_sema);
 
@@ -259,8 +231,6 @@ error:
  * Returns -1 on fail. */
 int
 process_exec (void *f_name) {
-	// char *file_name;
-	// strlcpy(file_name, f_name, strlen(f_name)+1);
 	char *f_copy = palloc_get_page(PAL_ZERO);
     if (f_copy == NULL) return -1;
     strlcpy(f_copy, f_name, PGSIZE);
@@ -306,7 +276,6 @@ process_exec (void *f_name) {
 	success = load (file_name, &_if); // Pass the program name to load()
 	/* If load failed, quit. */
 	if (!success) {
-		// return -1;
 		palloc_free_page(f_copy);
         palloc_free_page(argv_copy);
 		exit(-1);
@@ -320,7 +289,7 @@ process_exec (void *f_name) {
 	}
 
 	_if.R.rsi = _if.rsp + sizeof(uintptr_t);
-	// hex_dump(_if.rsp, _if.rsp, USER_STACK - (uint64_t)_if.rsp, true); // for debugging user stack
+	// hex_dump(_if.rsp, _if.rsp, USER_STACK - (uint64_t)_if.rsp, true);
 
 	palloc_free_page(f_copy);
     palloc_free_page(argv_copy);
@@ -342,9 +311,6 @@ process_exec (void *f_name) {
  * does nothing. */
 int
 process_wait (tid_t child_tid UNUSED) {
-	// for (unsigned int i = 0; i < (1<<31); i++) {}
-	// return -1;
-
 	/* Find child process by using child_tid */
 	if (child_tid == TID_ERROR) return -1;
 	struct child *child = get_child_by_tid(child_tid);
@@ -381,27 +347,18 @@ process_exit (void) {
 	lock_acquire(&filesys_lock);
 	file_close(curr->running_file);
 	lock_release(&filesys_lock);
-	// curr->running_file = NULL;
+
+	while (!list_empty(&curr->children)) {
+		struct list_elem *e = list_pop_front(&curr->children);
+		struct child *child = list_entry(e, struct child, c_elem);
+		free(child);
+	}
 
 	if (curr->child_info != NULL) {
 		curr->child_info->exit_status = curr->exit_status;
 		curr->child_info->is_exit = true;
 		sema_up(&curr->child_info->c_sema);
 	}
-	
-	// struct thread *parent = curr->parent;
-	// if (parent != NULL) {
-	// 	struct list_elem *e;
-	// 	for (e = list_begin(&parent->children); e != list_end(&parent->children); e = list_next(e)) {
-	// 		struct child *child = list_entry(e, struct child, c_elem);
-	// 		if (child->tid == curr->tid) {
-	// 			child->exit_status = curr->exit_status;
-	// 			child->is_exit = true;
-	// 			sema_up(&child->c_sema);
-	// 			break;
-	// 		}
-	// 	}
-	// }
 
 	process_cleanup ();
 }
@@ -609,7 +566,6 @@ load (const char *file_name, struct intr_frame *if_) {
 
 done:
 	/* We arrive here whether the load is successful or not. */
-	// file_close (file);
 	return success;
 }
 

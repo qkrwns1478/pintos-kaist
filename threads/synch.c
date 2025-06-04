@@ -195,18 +195,19 @@ lock_acquire (struct lock *lock) {
      * Store the current priority and maintain donated threads on list (multiple donation).
      * Donate priority. */
 	struct thread *curr = thread_current();
-	if (!thread_mlfqs && lock->holder != NULL) {
+	if (lock->holder != NULL) {
 		curr->wait_on_lock = lock;
-    	list_insert_ordered(&lock->holder->donations, &curr->d_elem, cmp_priority_donate, NULL);
-		struct thread *t = thread_current ();
-		/* If necessary, you may impose a reasonable limit on
-		   depth of nested priority donation, such as 8 levels. */
-		for (int i = 0; i < 8; i++) {
-			if (!t->wait_on_lock)
-				break;
-			struct thread *h = t->wait_on_lock->holder;
-			h->priority = t->priority;
-			t = h;
+		list_insert_ordered(&lock->holder->donations, &curr->d_elem, cmp_priority_donate, NULL);
+		if (!thread_mlfqs) {
+			/* If necessary, you may impose a reasonable limit on
+			 * depth of nested priority donation, such as 8 levels. */
+			struct thread *t = thread_current ();
+			for (int i = 0; i < 8; i++) {
+				if (!t->wait_on_lock) break;
+				struct thread *h = t->wait_on_lock->holder;
+				h->priority = t->priority;
+				t = h;
+			}
 		}
 	}
 
