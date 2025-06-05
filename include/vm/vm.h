@@ -38,6 +38,7 @@ struct page_operations;
 struct thread;
 
 #define VM_TYPE(type) ((type) & 7)
+#define STACK_LIMIT (USER_STACK - (1 << 20)) /* Limit the stack size to be 1MB at maximum. */
 
 /* The representation of "page".
  * This is kind of "parent class", which has four "child class"es, which are

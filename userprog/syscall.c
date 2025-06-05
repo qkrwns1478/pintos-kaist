@@ -18,11 +18,7 @@
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
-#ifndef VM
 bool check_address (const void *addr);
-#else
-struct page *check_address (const void *addr);
-#endif
 
 /* System call.
  *
@@ -195,6 +191,11 @@ int filesize (int fd) {
 int read (int fd, void *buffer, unsigned size) {
 	if (size == 0) return 0;
 	if (!check_address(buffer)) exit(-1);
+#ifdef VM
+    struct page *page = spt_find_page(&thread_current()->spt, buffer);
+    if (page != NULL && !page->writable)
+        exit(-1);
+#endif
 	if (fd == 0) { // fd0 is stdin
 		char *buf = (char *) buffer;
 		for (int i = 0; i < size; i++) {
@@ -273,19 +274,15 @@ void close (int fd) {
 	lock_release(&filesys_lock);
 }
 
-#ifndef VM
 bool check_address(const void *addr) {
-	if (addr == NULL || !is_user_vaddr(addr) || pml4_get_page(thread_current()->pml4, addr) == NULL) 
+	if (addr == NULL || !is_user_vaddr(addr)) 
+		return false;
+#ifndef VM
+	void *page = pml4_get_page(thread_current()->pml4, addr);
+#else
+	struct page *page = spt_find_page(&thread_current()->spt, addr);
+#endif
+	if (page == NULL)
 		return false;
 	return true;
 }
-#else
-struct page *check_address (const void *addr) {
-    if (is_kernel_vaddr(addr) || addr == NULL)
-        exit(-1);
-	struct page *page = spt_find_page(&thread_current()->spt, addr);
-	if (page == NULL)
-		exit(-1);
-    return page;
-}
-#endif
