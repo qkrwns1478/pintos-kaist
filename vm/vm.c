@@ -79,14 +79,15 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable, v
 	ASSERT (VM_TYPE(type) != VM_UNINIT)
 
 	struct supplemental_page_table *spt = &thread_current ()->spt;
+	if (!is_user_vaddr(upage) || upage == NULL)
+		return false;
 
 	/* Check wheter the upage is already occupied or not. */
 	if (spt_find_page (spt, upage) == NULL) {
 		/* TODO: Create the page, fetch the initialier according to the VM type,
 		 * TODO: and then create "uninit" page struct by calling uninit_new. You
 		 * TODO: should modify the field after calling the uninit_new. */
-		// struct page *p = palloc_get_page(PAL_USER);
-		struct page *p = (struct page *)malloc(sizeof(struct page));
+		struct page *p = (struct page *)malloc(sizeof(struct page)); // page structure → using malloc
 		if (VM_TYPE(type) == VM_ANON)
 			uninit_new(p, upage, init, type, aux, anon_initializer);
 		else if (VM_TYPE(type) == VM_FILE)
@@ -108,7 +109,7 @@ err:
 /* Find VA from spt and return page. On error, return NULL. */
 struct page *
 spt_find_page (struct supplemental_page_table *spt UNUSED, void *va UNUSED) {
-	struct page *page = NULL;
+	// struct page *page = NULL;
 	/* TODO: Fill this function. */
 	// int key = hash_bytes(&va, sizeof(va)) % spt->spt_hash->bucket_cnt;
 	// struct list *bucket = &spt->spt_hash->buckets[key];
@@ -120,10 +121,9 @@ spt_find_page (struct supplemental_page_table *spt UNUSED, void *va UNUSED) {
 	// }
 	// return page;
 	if(spt == NULL || va == NULL) return NULL;
-	page = malloc(sizeof(struct page));
-	page->va = pg_round_down(va);
-    struct hash_elem *e = hash_find(&spt->spt_hash, &page->hash_elem);
-	free(page);
+	struct page page;
+	page.va = pg_round_down(va);
+    struct hash_elem *e = hash_find(&spt->spt_hash, &page.hash_elem);
 	if (e != NULL) return hash_entry(e, struct page, hash_elem);
 	else return NULL;
 }
@@ -133,10 +133,6 @@ bool
 spt_insert_page (struct supplemental_page_table *spt UNUSED, struct page *page UNUSED) {
 	bool succ = false;
 	/* TODO: Fill this function. */
-	// if (spt_find_page(spt, page->va) == NULL) {
-	// 	hash_insert(&spt->spt_hash, &page->hash_elem);
-	// 	succ = true;
-	// }
 	if (hash_insert(&spt->spt_hash, &page->hash_elem) == NULL)
 		succ = true;
 	return succ;
@@ -189,8 +185,18 @@ vm_get_frame (void) {
 }
 
 /* Growing the stack. */
-static void
+bool
 vm_stack_growth (void *addr UNUSED) {
+	/* TODO: To implement stack growth functionalities, you first modify 
+	 * TODO: vm_try_handle_fault() to identify the stack growth.  
+	 * TODO: After identifying the stack growth, you should make a call 
+	 * TODO: to vm_stack_growth() to grow  the stack. */
+	/* Increases the stack size by allocating one or more anonymous pages
+	 * so that addr is no longer a faulted address. Make sure you round down
+	 * the addr to PGSIZE when handling the allocation. */
+	void *upage = pg_round_down(addr);
+	if (vm_alloc_page_with_initializer(VM_ANON, upage, true, NULL, NULL)) // allocating one anon page
+		return vm_claim_page(upage);
 }
 
 /* Handle the fault on write_protected page */
@@ -202,15 +208,25 @@ vm_handle_wp (struct page *page UNUSED) {
 bool
 vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED, bool user UNUSED, bool write UNUSED, bool not_present UNUSED) {
 	struct supplemental_page_table *spt UNUSED = &thread_current ()->spt;
-	struct page *page = NULL;
+	// struct page *page = NULL;
 	/* TODO: Validate the fault */
 	/* TODO: Your code goes here */
 	/* Modify this function to resolve the page struct corresponding to the faulted address
 	 * by consulting to the supplemental page table through spt_find_page. */
     if (addr == NULL || is_kernel_vaddr(addr) || !not_present)
 		return false;
-	page = spt_find_page(spt, addr);
-    if (page == NULL || (write && !page->writable))
+	struct page *page = spt_find_page(spt, addr);
+    if (page == NULL) {
+		/* If you have confirmed that the fault can be handled with a stack growth,
+		 * call vm_stack_growth with the faulted address. */
+		if (f->rsp - PGSIZE < addr && addr < USER_STACK && f->rsp - PGSIZE >= STACK_LIMIT) {
+			if (!vm_stack_growth(addr))
+				return false;
+			page = spt_find_page(spt, addr);
+		} else
+			return false;
+	}
+	if (write && !page->writable)
 		return false;
     return vm_do_claim_page(page);
 }
@@ -277,7 +293,7 @@ supplemental_page_table_copy (struct supplemental_page_table *dst, struct supple
         void *va = src_page->va;
         bool writable = src_page->writable;
         if (type == VM_UNINIT) {
-            vm_alloc_page_with_initializer(VM_ANON, va, writable, src_page->uninit.init, src_page->uninit.aux); // Why VM_ANON?
+            vm_alloc_page_with_initializer(src_page->uninit.type, va, writable, src_page->uninit.init, src_page->uninit.aux);
             continue;
         } else if (!vm_alloc_page_with_initializer(type, va, writable, NULL, NULL) || !vm_claim_page(va))
             return false;
