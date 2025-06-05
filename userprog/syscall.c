@@ -191,6 +191,11 @@ int filesize (int fd) {
 int read (int fd, void *buffer, unsigned size) {
 	if (size == 0) return 0;
 	if (!check_address(buffer)) exit(-1);
+#ifdef VM
+    struct page *page = spt_find_page(&thread_current()->spt, buffer);
+    if (page != NULL && !page->writable)
+        exit(-1);
+#endif
 	if (fd == 0) { // fd0 is stdin
 		char *buf = (char *) buffer;
 		for (int i = 0; i < size; i++) {

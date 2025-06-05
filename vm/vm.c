@@ -87,8 +87,7 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable, v
 		/* TODO: Create the page, fetch the initialier according to the VM type,
 		 * TODO: and then create "uninit" page struct by calling uninit_new. You
 		 * TODO: should modify the field after calling the uninit_new. */
-		// struct page *p = palloc_get_page(PAL_USER);
-		struct page *p = (struct page *)malloc(sizeof(struct page));
+		struct page *p = (struct page *)malloc(sizeof(struct page)); // page structure → using malloc
 		if (VM_TYPE(type) == VM_ANON)
 			uninit_new(p, upage, init, type, aux, anon_initializer);
 		else if (VM_TYPE(type) == VM_FILE)
@@ -134,10 +133,6 @@ bool
 spt_insert_page (struct supplemental_page_table *spt UNUSED, struct page *page UNUSED) {
 	bool succ = false;
 	/* TODO: Fill this function. */
-	// if (spt_find_page(spt, page->va) == NULL) {
-	// 	hash_insert(&spt->spt_hash, &page->hash_elem);
-	// 	succ = true;
-	// }
 	if (hash_insert(&spt->spt_hash, &page->hash_elem) == NULL)
 		succ = true;
 	return succ;
@@ -190,7 +185,7 @@ vm_get_frame (void) {
 }
 
 /* Growing the stack. */
-static bool
+bool
 vm_stack_growth (void *addr UNUSED) {
 	/* TODO: To implement stack growth functionalities, you first modify 
 	 * TODO: vm_try_handle_fault() to identify the stack growth.  
@@ -224,7 +219,7 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED, bool user U
     if (page == NULL) {
 		/* If you have confirmed that the fault can be handled with a stack growth,
 		 * call vm_stack_growth with the faulted address. */
-		if (f->rsp - PGSIZE <= addr && addr >= f->rsp - 8) { // f->rsp - 8 → stack growth for accesses slightly below rsp (ex. PUSH inst)
+		if (f->rsp - PGSIZE < addr && addr < USER_STACK && f->rsp - PGSIZE >= STACK_LIMIT) {
 			if (!vm_stack_growth(addr))
 				return false;
 			page = spt_find_page(spt, addr);
