@@ -185,7 +185,7 @@ vm_get_frame (void) {
 }
 
 /* Growing the stack. */
-bool
+static bool
 vm_stack_growth (void *addr UNUSED) {
 	/* TODO: To implement stack growth functionalities, you first modify 
 	 * TODO: vm_try_handle_fault() to identify the stack growth.  
