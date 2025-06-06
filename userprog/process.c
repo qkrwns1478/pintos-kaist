@@ -113,16 +113,6 @@ process_fork (const char *name, struct intr_frame *if_) {
 	if (child->fork_fail)
 		return TID_ERROR;
 	return tid;
-
-	// struct list_elem *e;
-	// for (e = list_begin(&curr->children); e != list_end(&curr->children); e = list_next(e)) {
-	// 	struct child *ch = list_entry(e, struct child, c_elem);
-	// 	if (ch->tid == tid) {
-	// 		sema_down(&ch->c_sema);
-	// 		break;
-	// 	}
-	// }
-	// return tid;
 }
 
 #ifndef VM
@@ -180,15 +170,6 @@ __do_fork (void *aux) {
 	current->parent = parent;
 	current->child_info = fa->child_info;
 	current->child_info->tid = current->tid;
-
-	// struct list_elem *e;
-	// for (e = list_begin(&parent->children); e != list_end(&parent->children); e = list_next(e)) {
-	// 	struct child *ch = list_entry(e, struct child, c_elem);
-	// 	if (ch->tid == current->tid) {
-	// 		current->child_info = ch;
-	// 		break;
-	// 	}
-	// }
 
 	struct intr_frame *parent_if = fa->pf;
 	bool succ = true;
@@ -388,22 +369,18 @@ process_exit (void) {
 		curr->child_info->is_exit = true;
 		sema_up(&curr->child_info->c_sema);
 	}
-	
-	// struct thread *parent = curr->parent;
-	// if (parent != NULL) {
-	// 	struct list_elem *e;
-	// 	for (e = list_begin(&parent->children); e != list_end(&parent->children); e = list_next(e)) {
-	// 		struct child *child = list_entry(e, struct child, c_elem);
-	// 		if (child->tid == curr->tid) {
-	// 			child->exit_status = curr->exit_status;
-	// 			child->is_exit = true;
-	// 			sema_up(&child->c_sema);
-	// 			break;
-	// 		}
-	// 	}
-	// }
+
+#ifdef VM
+	struct list_elem *e = list_begin(&curr->mmap_pages);
+	while (e != list_end(&curr->mmap_pages)) {
+		struct file_page *fp = list_entry(e, struct file_page, elem);
+		e = list_next(e);
+		do_munmap(&fp->va);
+	}
+#endif
 
 	process_cleanup ();
+	hash_destroy(&curr->spt.spt_hash , NULL);
 }
 
 /* Free the current process's resources. */
@@ -761,7 +738,7 @@ install_page (void *upage, void *kpage, bool writable) {
  * If you want to implement the function for only project 2, implement it on the
  * upper block. */
 
-static bool
+bool
 lazy_load_segment (struct page *page, void *aux) {
 	/* TODO: Load the segment from the file
 	 * TODO: This called when the first page fault occurs on address VA.
@@ -774,6 +751,13 @@ lazy_load_segment (struct page *page, void *aux) {
 	}
 	/* ZERO_BYTES bytes at UPAGE + READ_BYTES must be zeroed. */
 	memset(page->frame->kva + lla->read_bytes, 0, lla->zero_bytes);
+
+	if (page_get_type(page) == VM_FILE) {
+		page->file.file = lla->file;
+		page->file.ofs = lla->ofs;
+		page->file.read_bytes= lla->read_bytes;
+		list_push_back(&thread_current()->mmap_pages, &page->file.elem);
+	}
 	return true;
 }
 
@@ -792,8 +776,7 @@ lazy_load_segment (struct page *page, void *aux) {
  * Return true if successful, false if a memory allocation error
  * or disk read error occurs. */
 static bool
-load_segment (struct file *file, off_t ofs, uint8_t *upage,
-		uint32_t read_bytes, uint32_t zero_bytes, bool writable) {
+load_segment (struct file *file, off_t ofs, uint8_t *upage, uint32_t read_bytes, uint32_t zero_bytes, bool writable) {
 	ASSERT ((read_bytes + zero_bytes) % PGSIZE == 0);
 	ASSERT (pg_ofs (upage) == 0);
 	ASSERT (ofs % PGSIZE == 0);
@@ -806,13 +789,12 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
 		/* TODO: Set up aux to pass information to the lazy_load_segment. */
-		// struct lazy_load_args *aux = palloc_get_page(PAL_USER);
 		struct lazy_load_args *aux = (struct lazy_load_args *)malloc(sizeof(struct lazy_load_args));
 		aux->file = file;
 		aux->ofs = ofs;
 		aux->read_bytes = page_read_bytes;
 		aux->zero_bytes = page_zero_bytes;
-		// Copy-on-Write 이전까지는 파일 인자를 다 올릴 필요 없이 편의 상 VM_ANON으로 설정?
+		
 		if (!vm_alloc_page_with_initializer (VM_ANON, upage, writable, lazy_load_segment, aux))
 			return false;
 
@@ -839,13 +821,6 @@ setup_stack (struct intr_frame *if_) {
 	 * You can allocate and initialize it with the command line arguments at load time, with no need to wait for it to be faulted in.
 	 * You might need to provide the way to identify the stack.
 	 * You can use the auxillary markers in vm_type of vm/vm.h (e.g. VM_MARKER_0) to mark the page. */
-	// success = vm_claim_page(stack_bottom);
-	// struct page *kpage = palloc_get_page(PAL_USER | PAL_ZERO); // VM_MARKER_0?
-	// struct page *kpage = (struct page *)malloc(sizeof(struct page));
-	// kpage->va = stack_bottom;
-	// struct thread *t = thread_current();
-	// uint8_t *upage = ((uint8_t *) USER_STACK) - PGSIZE;
-	// success = (pml4_get_page (t->pml4, upage) == NULL && pml4_set_page (t->pml4, upage, kpage, pml4_is_writable(t->pml4, kpage)));
 	if(vm_alloc_page_with_initializer(VM_ANON | VM_MARKER_0, stack_bottom, true, NULL, NULL)) {
 		success = vm_claim_page(stack_bottom);
 		if (success)
