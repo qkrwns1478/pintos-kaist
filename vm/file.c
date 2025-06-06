@@ -3,8 +3,8 @@
 #include "vm/vm.h"
 #include "userprog/process.h"
 #include "threads/vaddr.h"
+#include "threads/mmu.h"
 
-#define REMAIN(x, y) ((x) > (y) ? ((x) - (y)) : (0))
 #define MIN(x, y) ((x) < (y) ? (x) : (y))
 
 static bool file_backed_swap_in (struct page *page, void *kva);
@@ -29,8 +29,8 @@ bool
 file_backed_initializer (struct page *page, enum vm_type type, void *kva) {
 	/* Set up the handler */
 	page->operations = &file_ops;
-
 	struct file_page *file_page = &page->file;
+	file_page->va = page->va;
 }
 
 /* Swap in the page by read contents from the file. */
@@ -49,18 +49,25 @@ file_backed_swap_out (struct page *page) {
 static void
 file_backed_destroy (struct page *page) {
 	struct file_page *file_page UNUSED = &page->file;
+    if (pml4_is_dirty(thread_current()->pml4, page->va)) {
+        file_write_at(file_page->file, page->frame->kva, file_page->read_bytes, file_page->ofs);
+        pml4_set_dirty(thread_current()->pml4, page->va, false);
+    }
+    pml4_clear_page(thread_current()->pml4, page->va);
 }
 
 /* Do the mmap */
 void *
 do_mmap (void *addr, size_t length, int writable, struct file *file, off_t offset) {
-    size_t read_bytes = MIN(REMAIN(file_length(file), offset), length);
-    size_t zero_bytes = pg_round_up(length) - read_bytes;
+	struct file *file_ = file_reopen(file);
+	size_t read_bytes = MIN(pg_round_down(length), file_length(file_));
+	size_t zero_bytes = length - read_bytes;
 
 	ASSERT ((read_bytes + zero_bytes) % PGSIZE == 0);
 	ASSERT (pg_ofs (addr) == 0);
 	ASSERT (offset % PGSIZE == 0);
 
+	void *ret = addr;
     while (read_bytes > 0 || zero_bytes > 0) {
 		/* Do calculate how to fill this page.
 		 * We will read PAGE_READ_BYTES bytes from FILE
@@ -70,18 +77,13 @@ do_mmap (void *addr, size_t length, int writable, struct file *file, off_t offse
 
 		/* TODO: Set up aux to pass information to the lazy_load_segment. */
         struct lazy_load_args *aux = (struct lazy_load_args *)malloc(sizeof(struct lazy_load_args));
-        aux->file = file;
+        aux->file = file_;
         aux->ofs = offset;
         aux->read_bytes = page_read_bytes;
         aux->zero_bytes = page_zero_bytes;
 
         if (!vm_alloc_page_with_initializer(VM_FILE, addr, writable, lazy_load_segment, aux))
             return NULL;
-		/* TODO: Insert new file-backed page into mmap list */
-		// struct page *page = spt_find_page(&thread_current()->spt, addr);
-		// if (page == NULL)
-		// 	return NULL;
-		// list_push_front(&thread_current()->mmap_pages, &page->file.elem);
 
 		/* Advance. */
         read_bytes -= page_read_bytes;
@@ -90,11 +92,22 @@ do_mmap (void *addr, size_t length, int writable, struct file *file, off_t offse
         offset += page_read_bytes;
     }
 
-    return addr;
+    return ret;
 }
 
 /* Do the munmap */
 void
 do_munmap (void *addr) {
-	
+	/* TODO: Remove mmaped page from mmap list of current thread */
+	struct thread *curr = thread_current();
+	struct page *page = spt_find_page(&curr->spt, addr);
+    while (page != NULL) {
+		if (page->operations->type != VM_FILE)
+			return;
+		destroy(page);
+		list_remove(&page->file.elem);
+		spt_remove_page(&curr->spt, page);
+		addr += PGSIZE;
+		page = spt_find_page(&curr->spt, addr);
+	}
 }

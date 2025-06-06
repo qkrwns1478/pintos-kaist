@@ -403,6 +403,15 @@ process_exit (void) {
 	// 	}
 	// }
 
+#ifdef VM
+	struct list_elem *e = list_begin(&curr->mmap_pages);
+	while (e != list_end(&curr->mmap_pages)) {
+		struct file_page *fp = list_entry(e, struct file_page, elem);
+		e = list_next(e);
+		do_munmap(&fp->va);
+	}
+#endif
+
 	process_cleanup ();
 }
 
@@ -774,6 +783,13 @@ lazy_load_segment (struct page *page, void *aux) {
 	}
 	/* ZERO_BYTES bytes at UPAGE + READ_BYTES must be zeroed. */
 	memset(page->frame->kva + lla->read_bytes, 0, lla->zero_bytes);
+
+	if (page->operations->type == VM_FILE) {
+		page->file.file = lla->file;
+		page->file.ofs = lla->ofs;
+		page->file.read_bytes= lla->read_bytes;
+		list_push_back(&thread_current()->mmap_pages, &page->file.elem);
+	}
 	return true;
 }
 
