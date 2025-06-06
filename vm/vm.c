@@ -98,8 +98,10 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable, v
 
 		/* TODO: Insert the page into the spt. */
 		// return vm_claim_page(upage);
-		if (!spt_insert_page(spt, p))
-			return false;
+		if (!spt_insert_page(spt, p)) {
+			free(p);
+			goto err;
+		}
 		return true;
 	}
 err:
@@ -185,7 +187,7 @@ vm_get_frame (void) {
 }
 
 /* Growing the stack. */
-bool
+static bool
 vm_stack_growth (void *addr UNUSED) {
 	/* TODO: To implement stack growth functionalities, you first modify 
 	 * TODO: vm_try_handle_fault() to identify the stack growth.  
@@ -195,8 +197,21 @@ vm_stack_growth (void *addr UNUSED) {
 	 * so that addr is no longer a faulted address. Make sure you round down
 	 * the addr to PGSIZE when handling the allocation. */
 	void *upage = pg_round_down(addr);
-	if (vm_alloc_page_with_initializer(VM_ANON, upage, true, NULL, NULL)) // allocating one anon page
-		return vm_claim_page(upage);
+	// if (!vm_alloc_page_with_initializer(VM_ANON | VM_MARKER_0, upage, true, NULL, NULL))
+	// 	return false;
+	// if (!vm_claim_page(upage))
+	// 	return false;
+	// return true;
+	int cnt = 0;
+	while (!spt_find_page(&thread_current()->spt, upage + cnt * PGSIZE))
+		cnt++;
+	for (int i = 0; i < cnt; i++) {
+		if (!vm_alloc_page_with_initializer(VM_ANON | VM_MARKER_0, upage + i * PGSIZE, true, NULL, NULL))
+			return false;
+		if (!vm_claim_page(upage + i * PGSIZE))
+			return false;
+	}
+	return true;
 }
 
 /* Handle the fault on write_protected page */
