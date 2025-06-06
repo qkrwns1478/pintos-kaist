@@ -199,39 +199,6 @@ int read (int fd, void *buffer, unsigned size) {
     if (page != NULL && !page->writable)
         exit(-1);
 #endif
-// 	struct thread *curr = thread_current();
-// #ifndef VM
-// 	if (!check_address(buffer)) exit(-1);
-// #else
-// 	if (buffer == NULL || !is_user_vaddr(buffer))
-// 		exit(-1);
-//     struct page *page = spt_find_page(&curr->spt, buffer);
-// 	if (page == NULL) {
-// 		// if ((curr->stack_pointer - PGSIZE) < buffer && buffer < USER_STACK && (curr->stack_pointer - PGSIZE) >= STACK_LIMIT) {
-// 		// 	if (!vm_stack_growth(buffer))
-// 		// 		exit(-1);
-// 		// 	page = spt_find_page(&curr->spt, buffer);
-// 		// } else {
-// 		// 	printf("[DEBUG] %d %p %p\n", (curr->stack_pointer - PGSIZE) < buffer, (curr->stack_pointer - PGSIZE), buffer);
-// 		// 	exit(-1);
-// 		// }
-// 		if (buffer < USER_STACK) {
-// 			int cnt = 0;
-// 			while (curr->stack_bottom - cnt * PGSIZE >= buffer)
-// 				cnt++;
-// 			if (curr->stack_bottom - cnt * PGSIZE < STACK_LIMIT)
-// 				exit(-1);
-// 			for (int i = 0; i < cnt; i++) {
-// 				if (!vm_stack_growth(buffer + i * PGSIZE))
-// 					exit(-1);
-// 			}
-// 			page = spt_find_page(&curr->spt, buffer);
-// 		} else 
-// 			exit(-1);
-// 	}
-//     if (!page->writable)
-//         exit(-1);
-// #endif
 	if (fd == 0) { // fd0 is stdin
 		char *buf = (char *) buffer;
 		for (int i = 0; i < size; i++) {
