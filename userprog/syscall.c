@@ -96,6 +96,14 @@ syscall_handler (struct intr_frame *f UNUSED) {
 		case SYS_CLOSE:                  /* Close a file. */
 			close(f->R.rdi);
 			break;
+#ifdef VM
+		case SYS_MMAP:					 /* Map a file into memory. */
+			f->R.rax = mmap(f->R.rdi, f->R.rsi, f->R.rdx, f->R.r10, f->R.r8);
+			break;
+		case SYS_MUNMAP:				 /* Remove a memory mapping. */
+			munmap(f->R.rdi);
+			break;
+#endif
 		default:
 			exit(f->R.rdi);
 	}
@@ -180,7 +188,7 @@ int open (const char *filename) {
 
 /* Return the size, in bytes, of the file open as fd. */
 int filesize (int fd) {
-	if (fd < 2 || fd > 63) exit(-1); // invalid fd
+	if (fd < 2 || fd >= FILED_MAX) exit(-1); // invalid fd
 	struct file *file = thread_current()->fdt[fd];
 	if (file == NULL) exit(-1);
 
@@ -207,7 +215,7 @@ int read (int fd, void *buffer, unsigned size) {
 		return size;
 	}
 	else if (fd == 1) exit(-1); // fd1 is stdout (invalid)
-	else if (fd < 2 || fd > 63) exit(-1); // invalid fd
+	else if (fd < 2 || fd >= FILED_MAX) exit(-1); // invalid fd
 	else {
 		struct file *file = thread_current()->fdt[fd];
 		if (file == NULL) exit(-1);
@@ -225,7 +233,7 @@ int write(int fd, const void *buffer, unsigned size) {
 		putbuf(buffer, size);
 		return size;
 	} else if (fd == 0) exit(-1); // fd0 is stdin (invalid)
-	else if (fd < 2 || fd > 63) exit(-1); // invalid fd
+	else if (fd < 2 || fd >= FILED_MAX) exit(-1); // invalid fd
 	else {
 		struct thread *curr = thread_current();
 		struct file *file = curr->fdt[fd];
@@ -241,7 +249,7 @@ int write(int fd, const void *buffer, unsigned size) {
 
 /* Changes the next byte to be read or written in open file fd to position. */
 void seek (int fd, unsigned position) {
-	if (fd < 2 || fd > 63) exit(-1); // invalid fd
+	if (fd < 2 || fd >= FILED_MAX) exit(-1); // invalid fd
 	struct thread *curr = thread_current();
 	struct file *file = curr->fdt[fd];
 	if (file == NULL) exit(-1);
@@ -252,7 +260,7 @@ void seek (int fd, unsigned position) {
 
 /* Return the position of the next byte to be read or written in open file fd. */
 unsigned tell (int fd) {
-	if (fd < 2 || fd > 63) exit(-1); // invalid fd
+	if (fd < 2 || fd >= FILED_MAX) exit(-1); // invalid fd
 	struct thread *curr = thread_current();
 	struct file *file = curr->fdt[fd];
 	if (file == NULL) exit(-1); // file not found
@@ -264,7 +272,7 @@ unsigned tell (int fd) {
 
 /* Close file descriptor fd. */
 void close (int fd) {
-	if (fd < 2 || fd > 63) exit(-1); // invalid fd
+	if (fd < 2 || fd >= FILED_MAX) exit(-1); // invalid fd
 	struct thread *curr = thread_current();
 	struct file *file = curr->fdt[fd];
 	if (file == NULL) exit(-1);
@@ -276,6 +284,30 @@ void close (int fd) {
 	file_close(file);
 	lock_release(&filesys_lock);
 }
+
+#ifdef VM
+
+/* Load file data into memory. */
+void *mmap (void *addr, size_t length, int writable, int fd, off_t offset) {
+	if (length == 0 || pg_round_down(addr) != addr || pg_round_down(offset) != offset || addr == 0 || fd == 0 || fd == 1)
+		return NULL;
+	struct file *file = thread_current()->fdt[fd];
+	lock_acquire(&filesys_lock);
+	off_t len = file_length(file);
+	lock_release(&filesys_lock);
+	if (file == NULL || len == 0)
+		return NULL;
+	return do_mmap(addr, length, writable, file, offset);
+}
+
+/* Unmap the mappings which has not been previously unmapped. */
+void munmap (void *addr) {
+	if (pg_round_down(addr) != addr || addr == 0)
+		return;
+	do_munmap(addr);
+}
+
+#endif
 
 bool check_address(const void *addr) {
 	if (addr == NULL || !is_user_vaddr(addr)) 

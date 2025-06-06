@@ -97,7 +97,6 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable, v
 		p->writable = writable;
 
 		/* TODO: Insert the page into the spt. */
-		// return vm_claim_page(upage);
 		if (!spt_insert_page(spt, p)) {
 			free(p);
 			goto err;
@@ -111,17 +110,7 @@ err:
 /* Find VA from spt and return page. On error, return NULL. */
 struct page *
 spt_find_page (struct supplemental_page_table *spt UNUSED, void *va UNUSED) {
-	// struct page *page = NULL;
 	/* TODO: Fill this function. */
-	// int key = hash_bytes(&va, sizeof(va)) % spt->spt_hash->bucket_cnt;
-	// struct list *bucket = &spt->spt_hash->buckets[key];
-	// for (struct list_elem *e = list_begin(bucket); e != list_end(bucket); e = list_next(e)) {
-	// 	struct hash_elem *he = list_elem_to_hash_elem(e);
-	// 	struct page *p = hash_entry(he, struct page, hash_elem);
-	// 	if (p->va == va)
-	// 		return p;
-	// }
-	// return page;
 	if(spt == NULL || va == NULL) return NULL;
 	struct page page;
 	page.va = pg_round_down(va);
@@ -142,6 +131,7 @@ spt_insert_page (struct supplemental_page_table *spt UNUSED, struct page *page U
 
 void
 spt_remove_page (struct supplemental_page_table *spt, struct page *page) {
+	hash_delete(&thread_current()->spt.spt_hash, &page->hash_elem);
 	vm_dealloc_page (page);
 	return true;
 }
@@ -197,11 +187,6 @@ vm_stack_growth (void *addr UNUSED) {
 	 * so that addr is no longer a faulted address. Make sure you round down
 	 * the addr to PGSIZE when handling the allocation. */
 	void *upage = pg_round_down(addr);
-	// if (!vm_alloc_page_with_initializer(VM_ANON | VM_MARKER_0, upage, true, NULL, NULL))
-	// 	return false;
-	// if (!vm_claim_page(upage))
-	// 	return false;
-	// return true;
 	int cnt = 0;
 	while (!spt_find_page(&thread_current()->spt, upage + cnt * PGSIZE))
 		cnt++;
@@ -223,7 +208,6 @@ vm_handle_wp (struct page *page UNUSED) {
 bool
 vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED, bool user UNUSED, bool write UNUSED, bool not_present UNUSED) {
 	struct supplemental_page_table *spt UNUSED = &thread_current ()->spt;
-	// struct page *page = NULL;
 	/* TODO: Validate the fault */
 	/* TODO: Your code goes here */
 	/* Modify this function to resolve the page struct corresponding to the faulted address
@@ -257,7 +241,6 @@ vm_dealloc_page (struct page *page) {
 /* Claim the page that allocate on VA. */
 bool
 vm_claim_page (void *va UNUSED) {
-	// struct page *page = NULL;
 	/* TODO: Fill this function */
 	if (va == NULL)
 		return false;
@@ -280,7 +263,6 @@ vm_do_claim_page (struct page *page) {
 
 	/* TODO: Insert page table entry to map page's VA to frame's PA. */
 	/* Add the mapping from the VA to the PA in the page table. */
-	// page->frame->kva = pml4_get_page(thread_current()->pml4, page->va);
 	if (!pml4_set_page(thread_current()->pml4, page->va, frame->kva, page->writable))
 		return false;
 
@@ -296,14 +278,10 @@ supplemental_page_table_init (struct supplemental_page_table *spt UNUSED) {
 /* Copy supplemental page table from src to dst */
 bool
 supplemental_page_table_copy (struct supplemental_page_table *dst, struct supplemental_page_table *src) {
-	// memcpy(&dst->spt_hash, &src->spt_hash, sizeof(struct supplemental_page_table));
     struct hash_iterator i;
     hash_first(&i, &src->spt_hash);
     while (hash_next(&i)) {
         struct page *src_page = hash_entry(hash_cur(&i), struct page, hash_elem);
-		// struct page *dst_page = (struct page *)malloc(sizeof(struct page));
-        // memcpy(dst_page, src_page, sizeof(struct page));
-        // hash_insert(&dst->spt_hash, &dst_page->hash_elem);
         enum vm_type type = src_page->operations->type;
         void *va = src_page->va;
         bool writable = src_page->writable;
