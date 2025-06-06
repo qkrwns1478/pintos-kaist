@@ -60,8 +60,9 @@ file_backed_destroy (struct page *page) {
 void *
 do_mmap (void *addr, size_t length, int writable, struct file *file, off_t offset) {
 	struct file *file_ = file_reopen(file);
-	size_t read_bytes = MIN(pg_round_down(length), file_length(file_));
-	size_t zero_bytes = length - read_bytes;
+	size_t read_bytes = MIN(length, file_length(file_) - offset);
+	size_t zero_bytes = pg_round_up(length) - read_bytes;
+
 
 	ASSERT ((read_bytes + zero_bytes) % PGSIZE == 0);
 	ASSERT (pg_ofs (addr) == 0);
@@ -102,7 +103,7 @@ do_munmap (void *addr) {
 	struct thread *curr = thread_current();
 	struct page *page = spt_find_page(&curr->spt, addr);
     while (page != NULL) {
-		if (page->operations->type != VM_FILE)
+		if (page_get_type(page) != VM_FILE)
 			return;
 		destroy(page);
 		list_remove(&page->file.elem);
