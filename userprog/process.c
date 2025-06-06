@@ -369,20 +369,6 @@ process_exit (void) {
 		curr->child_info->is_exit = true;
 		sema_up(&curr->child_info->c_sema);
 	}
-	
-	// struct thread *parent = curr->parent;
-	// if (parent != NULL) {
-	// 	struct list_elem *e;
-	// 	for (e = list_begin(&parent->children); e != list_end(&parent->children); e = list_next(e)) {
-	// 		struct child *child = list_entry(e, struct child, c_elem);
-	// 		if (child->tid == curr->tid) {
-	// 			child->exit_status = curr->exit_status;
-	// 			child->is_exit = true;
-	// 			sema_up(&child->c_sema);
-	// 			break;
-	// 		}
-	// 	}
-	// }
 
 #ifdef VM
 	struct list_elem *e = list_begin(&curr->mmap_pages);
@@ -394,6 +380,7 @@ process_exit (void) {
 #endif
 
 	process_cleanup ();
+	hash_destroy(&curr->spt.spt_hash , NULL);
 }
 
 /* Free the current process's resources. */

@@ -292,11 +292,11 @@ void *mmap (void *addr, size_t length, int writable, int fd, off_t offset) {
 	if (length == 0 || pg_round_down(addr) != addr || pg_round_down(offset) != offset || addr == 0 || fd == 0 || fd == 1)
 		return NULL;
 	struct file *file = thread_current()->fdt[fd];
+	if (file == NULL) return NULL;
 	lock_acquire(&filesys_lock);
 	off_t len = file_length(file);
 	lock_release(&filesys_lock);
-	if (file == NULL || len == 0)
-		return NULL;
+	if (len == 0) return NULL;
 	return do_mmap(addr, length, writable, file, offset);
 }
 
