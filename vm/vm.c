@@ -17,6 +17,8 @@ vm_init (void) {
 	register_inspect_intr ();
 	/* DO NOT MODIFY UPPER LINES. */
 	/* TODO: Your code goes here. */
+	list_init(&frame_table);
+	lock_init(&frame_table_lock);
 }
 
 /* Get the type of the page. This function is useful if you want to know the
@@ -139,18 +141,32 @@ spt_remove_page (struct supplemental_page_table *spt, struct page *page) {
 /* Get the struct frame, that will be evicted. */
 static struct frame *
 vm_get_victim (void) {
-	// struct frame *victim = NULL;
+	struct frame *victim = NULL;
 	 /* TODO: The policy for eviction is up to you. */
-    struct supplemental_page_table *spt = &thread_current()->spt;
-    struct hash_iterator i;
-    hash_first(&i, &spt->spt_hash);
-    while (hash_next(&i)) {
-        struct page *p = hash_entry(hash_cur(&i), struct page, hash_elem);
-        if (p->frame != NULL && p->frame->page != NULL) {
-			return p->frame;
-        }
-    }
-    return NULL;
+    // struct supplemental_page_table *spt = &thread_current()->spt;
+    // struct hash_iterator i;
+    // hash_first(&i, &spt->spt_hash);
+    // while (hash_next(&i)) {
+    //     struct page *p = hash_entry(hash_cur(&i), struct page, hash_elem);
+    //     if (p->frame != NULL && p->frame->page != NULL) {
+	// 		return p->frame;
+    //     }
+    // }
+    // return NULL;
+
+	lock_acquire(&frame_table_lock);
+	struct list_elem *e = list_begin(&frame_table);
+	while (e != list_end(&frame_table)) {
+		struct frame *f = list_entry(e, struct frame, elem);
+		if (f->page != NULL) {
+			// list_remove(e);
+			lock_release(&frame_table_lock);
+			return f;
+		}
+		e = list_next(e);
+	}
+	lock_release(&frame_table_lock);
+	return victim;
 }
 
 /* Evict one page and return the corresponding frame.
@@ -161,6 +177,9 @@ vm_evict_frame (void) {
 	/* TODO: swap out the victim and return the evicted frame. */
 	if (victim == NULL || !swap_out(victim->page))
 		return NULL;
+	lock_acquire(&frame_table_lock);
+	list_remove(&victim->elem);
+	lock_release(&frame_table_lock);
 	return victim;
 }
 
@@ -175,8 +194,7 @@ vm_get_frame (void) {
 	void *kva = palloc_get_page(PAL_USER | PAL_ZERO);
     if (kva == NULL) {
 		struct frame *victim = vm_evict_frame();
-		if (victim == NULL) printf("oops");
-		if (victim == NULL || victim->kva == NULL)
+		if (victim == NULL)
 			return NULL;
 		kva = victim->kva;
 		if (victim->page != NULL)
@@ -187,6 +205,10 @@ vm_get_frame (void) {
 	frame = (struct frame *)malloc(sizeof(struct frame));
 	frame->kva = kva;
 	frame->page = NULL;
+
+	lock_acquire(&frame_table_lock);
+	list_push_back(&frame_table, &frame->elem);
+	lock_release(&frame_table_lock);
 
 	ASSERT (frame != NULL);
 	ASSERT (frame->page == NULL);

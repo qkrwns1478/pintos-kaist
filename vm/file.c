@@ -39,43 +39,55 @@ file_backed_initializer (struct page *page, enum vm_type type, void *kva) {
 static bool
 file_backed_swap_in (struct page *page, void *kva) {
 	struct file_page *file_page = &page->file;
-	off_t ofs = file_page->ofs;
-	size_t read_bytes = file_page->read_bytes;
-    size_t zero_bytes = PGSIZE - read_bytes;
-	// lock_acquire(&filesys_lock);
-	off_t segment = file_read_at(file_page->file, kva, read_bytes, ofs);
-	// lock_release(&filesys_lock);
-    if (segment != read_bytes)
-        return false;
-    memset(kva + read_bytes, 0, zero_bytes);
-    return true;
+	lock_acquire(&filesys_lock);
+	int read_bytes = file_read_at(file_page->file, page->frame->kva, file_page->read_bytes, file_page->ofs);
+	lock_release(&filesys_lock);
+	memset(page->frame->kva + read_bytes, 0, PGSIZE - read_bytes);
+	return true;
 }
 
 /* Swap out the page by writeback contents to the file. */
 static bool
 file_backed_swap_out (struct page *page) {
-	if (page->frame == NULL)
-        return false;
-    if (pml4_is_dirty(thread_current()->pml4, page->va)) {
-        struct file *file = page->file.file;
-		off_t ofs = page->file.ofs;
-		size_t read_bytes = page->file.read_bytes;
-        file_write_at(file, page->frame->kva, read_bytes, ofs);
-        pml4_set_dirty(thread_current()->pml4, page->va, false);
-    }
-    page->frame = NULL;
-    return true;
+	struct file_page *file_page = &page->file;
+	struct frame *frame = page->frame;
+	if (pml4_is_dirty(thread_current()->pml4, page->va)) {
+		file_write_at(file_page->file, page->frame->kva, file_page->read_bytes, file_page->ofs);
+		pml4_set_dirty(thread_current()->pml4, page->va, false);
+	}
+	// page->frame->page = NULL;
+	// page->frame = NULL;
+	pml4_clear_page(thread_current()->pml4, page->va);
+
+	lock_acquire(&frame_table_lock);
+	list_remove(&page->frame->elem);
+	lock_release(&frame_table_lock);
+
+	palloc_free_page(page->frame->kva);
+	free(page->frame);
+	return true;
 }
 
 /* Destory the file backed page. PAGE will be freed by the caller. */
 static void
 file_backed_destroy (struct page *page) {
 	struct file_page *file_page = &page->file;
-    if (pml4_is_dirty(thread_current()->pml4, page->va)) {
-        file_write_at(file_page->file, page->frame->kva, file_page->read_bytes, file_page->ofs);
-        pml4_set_dirty(thread_current()->pml4, page->va, false);
-    }
-    pml4_clear_page(thread_current()->pml4, page->va);
+	if (page->frame != NULL) {
+		if (pml4_is_dirty(thread_current()->pml4, page->va)) {
+			file_write_at(file_page->file, page->frame->kva, file_page->read_bytes, file_page->ofs);
+			pml4_set_dirty(thread_current()->pml4, page->va, false);
+		}
+		pml4_clear_page(thread_current()->pml4, page->va);
+
+		lock_acquire(&frame_table_lock);
+		list_remove(&page->frame->elem);
+		lock_release(&frame_table_lock);
+
+		palloc_free_page(page->frame->kva);
+		free(page->frame);
+
+		page->frame = NULL;
+	}
 }
 
 /* Do the mmap */
@@ -91,29 +103,25 @@ do_mmap (void *addr, size_t length, int writable, struct file *file, off_t offse
 
 	void *ret = addr;
     while (read_bytes > 0 || zero_bytes > 0) {
-		/* Do calculate how to fill this page.
-		 * We will read PAGE_READ_BYTES bytes from FILE
-		 * and zero the final PAGE_ZERO_BYTES bytes. */
         size_t page_read_bytes = (read_bytes < PGSIZE) ? read_bytes : PGSIZE;
         size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
-		/* TODO: Set up aux to pass information to the lazy_load_segment. */
         struct lazy_load_args *aux = (struct lazy_load_args *)malloc(sizeof(struct lazy_load_args));
         aux->file = file_;
         aux->ofs = offset;
         aux->read_bytes = page_read_bytes;
         aux->zero_bytes = page_zero_bytes;
 
-        if (!vm_alloc_page_with_initializer(VM_FILE, addr, writable, lazy_load_segment, aux))
-            return NULL;
+        if (!vm_alloc_page_with_initializer(VM_FILE, addr, writable, lazy_load_segment, aux)) {
+			free(aux);
+			return NULL;
+		}
 
-		/* Advance. */
         read_bytes -= page_read_bytes;
         zero_bytes -= page_zero_bytes;
         addr += PGSIZE;
         offset += page_read_bytes;
     }
-
     return ret;
 }
 

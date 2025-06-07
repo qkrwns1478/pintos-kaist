@@ -26,7 +26,7 @@ vm_anon_init (void) {
 	/* TODO: Set up the swap_disk. */
 	swap_disk = disk_get(1, 1);
 	disk_sector_t swap_disk_size = disk_size(swap_disk);
-	size_t swap_slot_cnt = swap_disk_size / SECTOR_PER_SLOT; // # of sectors
+	size_t swap_slot_cnt = swap_disk_size / SECTOR_PER_SLOT;
 }
 
 /* Initialize the file mapping */
@@ -48,6 +48,24 @@ anon_swap_in (struct page *page, void *kva) {
 static bool
 anon_swap_out (struct page *page) {
 	struct anon_page *anon_page = &page->anon;
+	if (page->frame == NULL)
+		return false;
+
+	size_t slot_idx = get_free_swap_slot();
+	anon_page->slot_idx = slot_idx;
+
+	for (int i = 0; i < SECTOR_PER_SLOT; i++) {
+		disk_write(swap_disk, slot_idx * SECTOR_PER_SLOT + i, page->frame->kva + i * DISK_SECTOR_SIZE);
+	}
+
+	lock_acquire(&frame_table_lock);
+	list_remove(&page->frame->elem);
+	lock_release(&frame_table_lock);
+
+	palloc_free_page(page->frame->kva);
+	free(page->frame);
+	page->frame = NULL;
+	return true;
 }
 
 /* Destroy the anonymous page. PAGE will be freed by the caller. */
