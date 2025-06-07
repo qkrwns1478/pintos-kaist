@@ -139,20 +139,29 @@ spt_remove_page (struct supplemental_page_table *spt, struct page *page) {
 /* Get the struct frame, that will be evicted. */
 static struct frame *
 vm_get_victim (void) {
-	struct frame *victim = NULL;
+	// struct frame *victim = NULL;
 	 /* TODO: The policy for eviction is up to you. */
-
-	return victim;
+    struct supplemental_page_table *spt = &thread_current()->spt;
+    struct hash_iterator i;
+    hash_first(&i, &spt->spt_hash);
+    while (hash_next(&i)) {
+        struct page *p = hash_entry(hash_cur(&i), struct page, hash_elem);
+        if (p->frame != NULL && p->frame->page != NULL) {
+			return p->frame;
+        }
+    }
+    return NULL;
 }
 
 /* Evict one page and return the corresponding frame.
  * Return NULL on error.*/
 static struct frame *
 vm_evict_frame (void) {
-	struct frame *victim UNUSED = vm_get_victim ();
+	struct frame *victim = vm_get_victim();
 	/* TODO: swap out the victim and return the evicted frame. */
-
-	return NULL;
+	if (victim == NULL || !swap_out(victim->page))
+		return NULL;
+	return victim;
 }
 
 /* palloc() and get frame. If there is no available page, evict the page
@@ -164,8 +173,16 @@ vm_get_frame (void) {
 	struct frame *frame = NULL;
 	/* TODO: Fill this function. */
 	void *kva = palloc_get_page(PAL_USER | PAL_ZERO);
-    if (kva == NULL)
-        PANIC("todo");
+    if (kva == NULL) {
+		struct frame *victim = vm_evict_frame();
+		if (victim == NULL) printf("oops");
+		if (victim == NULL || victim->kva == NULL)
+			return NULL;
+		kva = victim->kva;
+		if (victim->page != NULL)
+			victim->page->frame = NULL;
+		free(victim);
+	}
 	
 	frame = (struct frame *)malloc(sizeof(struct frame));
 	frame->kva = kva;

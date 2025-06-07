@@ -2,12 +2,15 @@
 
 #include "vm/vm.h"
 #include "devices/disk.h"
+#include "threads/vaddr.h"
 
 /* DO NOT MODIFY BELOW LINE */
 static struct disk *swap_disk;
 static bool anon_swap_in (struct page *page, void *kva);
 static bool anon_swap_out (struct page *page);
 static void anon_destroy (struct page *page);
+
+#define SECTOR_PER_SLOT (PGSIZE / DISK_SECTOR_SIZE)
 
 /* DO NOT MODIFY this struct */
 static const struct page_operations anon_ops = {
@@ -21,7 +24,9 @@ static const struct page_operations anon_ops = {
 void
 vm_anon_init (void) {
 	/* TODO: Set up the swap_disk. */
-	swap_disk = NULL;
+	swap_disk = disk_get(1, 1);
+	disk_sector_t swap_disk_size = disk_size(swap_disk);
+	size_t swap_slot_cnt = swap_disk_size / SECTOR_PER_SLOT; // # of sectors
 }
 
 /* Initialize the file mapping */

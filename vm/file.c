@@ -3,6 +3,7 @@
 #include "vm/vm.h"
 #include "userprog/process.h"
 #include "threads/vaddr.h"
+#include "userprog/syscall.h"
 #include "threads/mmu.h"
 
 #define MIN(x, y) ((x) < (y) ? (x) : (y))
@@ -31,24 +32,45 @@ file_backed_initializer (struct page *page, enum vm_type type, void *kva) {
 	page->operations = &file_ops;
 	struct file_page *file_page = &page->file;
 	file_page->va = page->va;
+	return true;
 }
 
 /* Swap in the page by read contents from the file. */
 static bool
 file_backed_swap_in (struct page *page, void *kva) {
-	struct file_page *file_page UNUSED = &page->file;
+	struct file_page *file_page = &page->file;
+	off_t ofs = file_page->ofs;
+	size_t read_bytes = file_page->read_bytes;
+    size_t zero_bytes = PGSIZE - read_bytes;
+	// lock_acquire(&filesys_lock);
+	off_t segment = file_read_at(file_page->file, kva, read_bytes, ofs);
+	// lock_release(&filesys_lock);
+    if (segment != read_bytes)
+        return false;
+    memset(kva + read_bytes, 0, zero_bytes);
+    return true;
 }
 
 /* Swap out the page by writeback contents to the file. */
 static bool
 file_backed_swap_out (struct page *page) {
-	struct file_page *file_page UNUSED = &page->file;
+	if (page->frame == NULL)
+        return false;
+    if (pml4_is_dirty(thread_current()->pml4, page->va)) {
+        struct file *file = page->file.file;
+		off_t ofs = page->file.ofs;
+		size_t read_bytes = page->file.read_bytes;
+        file_write_at(file, page->frame->kva, read_bytes, ofs);
+        pml4_set_dirty(thread_current()->pml4, page->va, false);
+    }
+    page->frame = NULL;
+    return true;
 }
 
 /* Destory the file backed page. PAGE will be freed by the caller. */
 static void
 file_backed_destroy (struct page *page) {
-	struct file_page *file_page UNUSED = &page->file;
+	struct file_page *file_page = &page->file;
     if (pml4_is_dirty(thread_current()->pml4, page->va)) {
         file_write_at(file_page->file, page->frame->kva, file_page->read_bytes, file_page->ofs);
         pml4_set_dirty(thread_current()->pml4, page->va, false);
@@ -62,7 +84,6 @@ do_mmap (void *addr, size_t length, int writable, struct file *file, off_t offse
 	struct file *file_ = file_reopen(file);
 	size_t read_bytes = MIN(length, file_length(file_) - offset);
 	size_t zero_bytes = pg_round_up(length) - read_bytes;
-
 
 	ASSERT ((read_bytes + zero_bytes) % PGSIZE == 0);
 	ASSERT (pg_ofs (addr) == 0);
