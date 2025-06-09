@@ -258,7 +258,6 @@ vm_handle_wp (struct page *page UNUSED) {
 /* Return true on success */
 bool
 vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED, bool user UNUSED, bool write UNUSED, bool not_present UNUSED) {
-	// printf("[vm_try_handle_fault] addr=%p rsp=%p user=%d\n", addr, f->rsp, user);
 	struct supplemental_page_table *spt UNUSED = &thread_current ()->spt;
 	/* TODO: Validate the fault */
 	/* TODO: Your code goes here */
@@ -275,11 +274,8 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED, bool user U
 			if (!vm_stack_growth(addr))
 				return false;
 			page = spt_find_page(spt, addr);
-		} else {
-			// printf("[vm_try_handle_fault] rsp condition fault: %d %d %d\n", rsp - PGSIZE < addr, addr < USER_STACK, rsp - PGSIZE >= STACK_LIMIT);
-			// printf("%p %p\n", rsp - PGSIZE, addr);
+		} else
 			return false;
-		}
 	}
 	if (write && !page->writable)
 		return false;

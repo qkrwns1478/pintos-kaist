@@ -30,13 +30,9 @@ enum vm_type {
 #include "vm/uninit.h"
 #include "vm/anon.h"
 #include "vm/file.h"
-#include "threads/synch.h"
 #ifdef EFILESYS
 #include "filesys/page_cache.h"
 #endif
-
-struct list frame_table;
-struct lock frame_table_lock;
 
 struct page_operations;
 struct thread;
