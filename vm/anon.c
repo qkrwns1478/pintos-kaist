@@ -49,9 +49,11 @@ static bool
 anon_swap_in (struct page *page, void *kva) {
 	struct anon_page *anon_page = &page->anon;
 	size_t slot_idx = anon_page->slot_idx;
-	// ASSERT(slot_idx != BITMAP_ERROR);
-	if (slot_idx == BITMAP_ERROR)
-		return false;
+	if (slot_idx == BITMAP_ERROR) {
+		// 새로 만든 스택 페이지: swap에서 불러올 게 없음
+        memset(kva, 0, PGSIZE);
+        return true;
+	}
 
     for (int i = 0; i < SWAP_SLOTS_CNT; i++) {
         disk_read(swap_disk, slot_idx * SWAP_SLOTS_CNT + i, kva + i * DISK_SECTOR_SIZE);

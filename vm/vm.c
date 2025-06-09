@@ -258,6 +258,7 @@ vm_handle_wp (struct page *page UNUSED) {
 /* Return true on success */
 bool
 vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED, bool user UNUSED, bool write UNUSED, bool not_present UNUSED) {
+	// printf("[debug] fault_addr: %p, stack_pointer: %p\n", addr, thread_current()->stack_pointer);
 	struct supplemental_page_table *spt UNUSED = &thread_current ()->spt;
 	/* TODO: Validate the fault */
 	/* TODO: Your code goes here */
@@ -270,7 +271,7 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED, bool user U
 		/* If you have confirmed that the fault can be handled with a stack growth,
 		 * call vm_stack_growth with the faulted address. */
 		void *rsp = thread_current()->stack_pointer;
-		if (rsp - PGSIZE < addr && addr < USER_STACK && rsp - PGSIZE >= STACK_LIMIT) {
+		if (rsp - PGSIZE < addr && addr < USER_STACK && addr >= STACK_LIMIT) {
 			if (!vm_stack_growth(addr))
 				return false;
 			page = spt_find_page(spt, addr);
