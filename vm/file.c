@@ -3,6 +3,7 @@
 #include "vm/vm.h"
 #include "userprog/process.h"
 #include "threads/vaddr.h"
+#include "userprog/syscall.h"
 #include "threads/mmu.h"
 
 #define MIN(x, y) ((x) < (y) ? (x) : (y))
@@ -31,6 +32,7 @@ file_backed_initializer (struct page *page, enum vm_type type, void *kva) {
 	page->operations = &file_ops;
 	struct file_page *file_page = &page->file;
 	file_page->va = page->va;
+	return true;
 }
 
 /* Swap in the page by read contents from the file. */
@@ -87,20 +89,15 @@ do_mmap (void *addr, size_t length, int writable, struct file *file, off_t offse
 	size_t read_bytes = MIN(length, file_length(file_) - offset);
 	size_t zero_bytes = pg_round_up(length) - read_bytes;
 
-
 	ASSERT ((read_bytes + zero_bytes) % PGSIZE == 0);
 	ASSERT (pg_ofs (addr) == 0);
 	ASSERT (offset % PGSIZE == 0);
 
 	void *ret = addr;
     while (read_bytes > 0 || zero_bytes > 0) {
-		/* Do calculate how to fill this page.
-		 * We will read PAGE_READ_BYTES bytes from FILE
-		 * and zero the final PAGE_ZERO_BYTES bytes. */
         size_t page_read_bytes = (read_bytes < PGSIZE) ? read_bytes : PGSIZE;
         size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
-		/* TODO: Set up aux to pass information to the lazy_load_segment. */
         struct lazy_load_args *aux = (struct lazy_load_args *)malloc(sizeof(struct lazy_load_args));
         aux->file = file_;
         aux->ofs = offset;
@@ -112,13 +109,11 @@ do_mmap (void *addr, size_t length, int writable, struct file *file, off_t offse
 			return NULL;
 		}
 
-		/* Advance. */
         read_bytes -= page_read_bytes;
         zero_bytes -= page_zero_bytes;
         addr += PGSIZE;
         offset += page_read_bytes;
     }
-
     return ret;
 }
 

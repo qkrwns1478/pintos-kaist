@@ -380,7 +380,6 @@ process_exit (void) {
 #endif
 
 	process_cleanup ();
-	hash_destroy(&curr->spt.spt_hash , NULL);
 }
 
 /* Free the current process's resources. */

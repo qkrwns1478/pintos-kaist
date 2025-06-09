@@ -9,6 +9,18 @@ static struct disk *swap_disk;
 static bool anon_swap_in (struct page *page, void *kva);
 static bool anon_swap_out (struct page *page);
 static void anon_destroy (struct page *page);
+static size_t get_free_swap_slot (void);
+
+#define SECTOR_PER_SLOT (PGSIZE / DISK_SECTOR_SIZE)
+struct bitmap *swap_slot;
+/* The swap table tracks in-use and free swap slots. It should allow picking
+ * an unused swap slot for evicting a page from its frame to the swap partition.
+ * It should allow freeing a swap slot when its page is read back or the process
+ * whose page was swapped is terminated. Swap slots should be allocated lazily, 
+ * that is, only when they are actually required by eviction. 
+ * Reading data pages from the executable and writing them to swap immediately at 
+ * process startup is not lazy. Swap slots should not be reserved to store particular pages.
+ * Free a swap slot when its contents are read back into a frame. */
 
 #define SECTOR_PER_SLOT (PGSIZE / DISK_SECTOR_SIZE)
 struct bitmap *swap_slot;
