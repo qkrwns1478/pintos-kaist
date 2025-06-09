@@ -50,9 +50,7 @@ syscall_init (void) {
 /* The main system call interface */
 void
 syscall_handler (struct intr_frame *f UNUSED) {
-// #ifdef VM
-//     thread_current()->stack_pointer = f->rsp;
-// #endif
+    thread_current()->stack_pointer = f->rsp;
 	switch(f->R.rax) {
 		case SYS_HALT:                   /* Halt the operating system. */
 			halt();

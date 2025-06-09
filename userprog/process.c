@@ -380,7 +380,6 @@ process_exit (void) {
 #endif
 
 	process_cleanup ();
-	hash_destroy(&curr->spt.spt_hash , NULL);
 }
 
 /* Free the current process's resources. */
@@ -499,7 +498,9 @@ load (const char *file_name, struct intr_frame *if_) {
 	process_activate (thread_current ());
 
 	/* Open executable file. */
+	// lock_acquire(&filesys_lock);
 	file = filesys_open (file_name);
+	// lock_release(&filesys_lock);
 	if (file == NULL) {
 		printf ("load: %s: open failed\n", file_name);
 		goto done;
