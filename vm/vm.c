@@ -5,6 +5,9 @@
 #include "vm/vm.h"
 #include "vm/inspect.h"
 
+struct list frame_table;
+struct list_elem *fte;
+
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
 void
@@ -17,6 +20,7 @@ vm_init (void) {
 	register_inspect_intr ();
 	/* DO NOT MODIFY UPPER LINES. */
 	/* TODO: Your code goes here. */
+	list_init(&frame_table);
 }
 
 /* Get the type of the page. This function is useful if you want to know the
@@ -141,6 +145,26 @@ static struct frame *
 vm_get_victim (void) {
 	struct frame *victim = NULL;
 	 /* TODO: The policy for eviction is up to you. */
+	if (list_empty(&frame_table))
+		return NULL;
+
+	if (fte == NULL || fte == list_end(&frame_table))
+		fte = list_begin(&frame_table);
+
+	while (true) {
+		struct frame *frame = list_entry(fte, struct frame, frame_elem);
+		struct page *page = frame->page;
+
+		if (!pml4_is_accessed(thread_current()->pml4, page->va)) {
+			victim = frame;
+			break;
+		} else {
+			pml4_set_accessed(thread_current()->pml4, page->va, false);
+			fte = list_next(fte);
+			if (fte == list_end(&frame_table))
+				fte = list_begin(&frame_table);
+		}
+	}
 
 	return victim;
 }
@@ -151,8 +175,26 @@ static struct frame *
 vm_evict_frame (void) {
 	struct frame *victim UNUSED = vm_get_victim ();
 	/* TODO: swap out the victim and return the evicted frame. */
+	if (victim == NULL)
+		return NULL;
 
-	return NULL;
+	struct page *page = victim->page;
+
+	// swap out
+	if (!swap_out(page))
+		return NULL;
+
+	// unmap VA to PA
+	pml4_clear_page(thread_current()->pml4, page->va);
+
+	// 연결 해제
+	victim->page = NULL;
+	page->frame = NULL;
+
+	// frame table에서 제거
+	list_remove(&victim->frame_elem);
+
+	return victim;
 }
 
 /* palloc() and get frame. If there is no available page, evict the page
@@ -164,12 +206,21 @@ vm_get_frame (void) {
 	struct frame *frame = NULL;
 	/* TODO: Fill this function. */
 	void *kva = palloc_get_page(PAL_USER | PAL_ZERO);
-    if (kva == NULL)
-        PANIC("todo");
+    if (kva == NULL) {
+        // 메모리 부족 → evict 필요
+		struct frame *victim = vm_evict_frame();
+		if (victim == NULL)
+			PANIC("No frame to evict!");
+
+		kva = victim->kva;
+		free(victim);  // 회수한 frame 구조체 메모리 해제
+	}
 	
 	frame = (struct frame *)malloc(sizeof(struct frame));
 	frame->kva = kva;
 	frame->page = NULL;
+
+	list_push_back(&frame_table, &frame->frame_elem);  // frame table 등록
 
 	ASSERT (frame != NULL);
 	ASSERT (frame->page == NULL);
