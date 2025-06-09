@@ -269,7 +269,8 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED, bool user U
     if (page == NULL) {
 		/* If you have confirmed that the fault can be handled with a stack growth,
 		 * call vm_stack_growth with the faulted address. */
-		if (f->rsp - PGSIZE < addr && addr < USER_STACK && f->rsp - PGSIZE >= STACK_LIMIT) {
+		void *rsp = thread_current()->stack_pointer;
+		if (rsp - PGSIZE < addr && addr < USER_STACK && rsp - PGSIZE >= STACK_LIMIT) {
 			if (!vm_stack_growth(addr))
 				return false;
 			page = spt_find_page(spt, addr);

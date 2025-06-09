@@ -142,11 +142,16 @@ page_fault (struct intr_frame *f) {
 	write = (f->error_code & PF_W) != 0;
 	user = (f->error_code & PF_U) != 0;
 
+	thread_current()->stack_pointer = f->rsp;
+
 #ifdef VM
 	/* For project 3 and later. */
 	if (vm_try_handle_fault (f, fault_addr, user, write, not_present))
 		return;
-	exit(-1);
+	else {
+		page_fault_cnt++;
+		exit(-1);
+	}
 #endif
 
 	/* Count page faults. */

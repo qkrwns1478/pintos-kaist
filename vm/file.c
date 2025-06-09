@@ -56,16 +56,13 @@ file_backed_swap_out (struct page *page) {
 	struct file_page *file_page UNUSED = &page->file;
 
 	if (pml4_is_dirty(thread_current()->pml4,page->va)){
-		// file_seek(file_page->file, file_page->ofs);
-		// file_write(file_page->file, page->va, file_page->read_bytes);
 		file_write_at(file_page->file, page->frame->kva, file_page->read_bytes, file_page->ofs);
 		pml4_set_dirty(thread_current()->pml4, page->va, false);
 	} 
 	pml4_clear_page(thread_current()->pml4, page->va);
 	list_remove(&page->frame->frame_elem);
-
-	palloc_free_page(page->frame->kva);
-	free(page->frame);
+	// palloc_free_page(page->frame->kva);
+	// free(page->frame);
 	page->frame = NULL;
 	return true;
 }
@@ -82,10 +79,9 @@ file_backed_destroy (struct page *page) {
     }
     pml4_clear_page(thread_current()->pml4, page->va);
 	list_remove(&page->frame->frame_elem);
-	
-	palloc_free_page(page->frame->kva);
-	free(page->frame);
-	page->frame = NULL;
+	// palloc_free_page(page->frame->kva);
+	// free(page->frame);
+	// page->frame = NULL;
 }
 
 /* Do the mmap */
