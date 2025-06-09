@@ -22,6 +22,9 @@ struct bitmap *swap_slot;
  * process startup is not lazy. Swap slots should not be reserved to store particular pages.
  * Free a swap slot when its contents are read back into a frame. */
 
+#define SECTOR_PER_SLOT (PGSIZE / DISK_SECTOR_SIZE)
+struct bitmap *swap_slot;
+
 /* DO NOT MODIFY this struct */
 static const struct page_operations anon_ops = {
 	.swap_in = anon_swap_in,
@@ -33,10 +36,11 @@ static const struct page_operations anon_ops = {
 /* Initialize the data for anonymous pages */
 void
 vm_anon_init (void) {
-	swap_disk = disk_get(1, 1); // Set up the swap disk
+	/* TODO: Set up the swap_disk. */
+	swap_disk = disk_get(1, 1);
 	disk_sector_t swap_disk_size = disk_size(swap_disk);
 	size_t swap_slot_cnt = swap_disk_size / SECTOR_PER_SLOT;
-	swap_slot = bitmap_create(swap_slot_cnt); // Data structure to manage free and used areas in the swap disk
+	swap_slot = bitmap_create(swap_slot_cnt);
 }
 
 /* Initialize the file mapping */
@@ -53,15 +57,17 @@ anon_initializer (struct page *page, enum vm_type type, void *kva) {
 /* Swap in the page by read contents from the swap disk. */
 static bool
 anon_swap_in (struct page *page, void *kva) {
-	struct anon_page *anon_page = &page->anon;
-	size_t slot_idx = anon_page->slot_idx;
-	if (slot_idx == BITMAP_ERROR)
+	size_t idx = page->anon.slot_idx;
+
+	if (idx == BITMAP_ERROR || !bitmap_test(swap_slot, idx))
 		return false;
-	for (size_t i = 0; i < SECTOR_PER_SLOT; i++) {
-		disk_read(swap_disk, slot_idx * SECTOR_PER_SLOT + i, kva + i * DISK_SECTOR_SIZE);
-	}
-	bitmap_reset(&swap_slot, slot_idx);
-	anon_page->slot_idx = BITMAP_ERROR;
+
+	for (size_t i = 0; i < SECTOR_PER_SLOT; i++)
+		disk_read(swap_disk, idx * SECTOR_PER_SLOT + i, kva + i * DISK_SECTOR_SIZE);
+
+	bitmap_reset(swap_slot, idx);
+	page->anon.slot_idx = BITMAP_ERROR;
+
 	return true;
 }
 
@@ -69,41 +75,38 @@ anon_swap_in (struct page *page, void *kva) {
 static bool
 anon_swap_out (struct page *page) {
 	struct anon_page *anon_page = &page->anon;
-	if (page->frame == NULL)
+	if (!page->frame)
 		return false;
 
-	size_t slot_idx = get_free_swap_slot();
-	if (slot_idx == BITMAP_ERROR)
+	size_t idx = bitmap_scan_and_flip(swap_slot, 0, 1, false);
+	if (idx == BITMAP_ERROR)
 		return false;
-	anon_page->slot_idx = slot_idx;
 
-	for (size_t i = 0; i < SECTOR_PER_SLOT; i++) {
-		disk_write(swap_disk, slot_idx * SECTOR_PER_SLOT + i, page->frame->kva + i * DISK_SECTOR_SIZE);
-	}
+	page->anon.slot_idx = idx;
 
-	lock_acquire(&frame_table_lock);
-	list_remove(&page->frame->elem);
-	lock_release(&frame_table_lock);
+	for (size_t i = 0; i < SECTOR_PER_SLOT; i++)
+		disk_write(swap_disk, idx * SECTOR_PER_SLOT + i, page->frame->kva + i * DISK_SECTOR_SIZE);
 
+	list_remove(&page->frame->frame_elem);
 	palloc_free_page(page->frame->kva);
 	free(page->frame);
 	page->frame = NULL;
+
 	return true;
 }
 
 /* Destroy the anonymous page. PAGE will be freed by the caller. */
 static void
 anon_destroy (struct page *page) {
-	struct anon_page *anon_page = &page->anon;
-}
-
-static size_t
-get_free_swap_slot (void) {
-	size_t slot_cnt = bitmap_size(&swap_slot);
-	for (size_t i = 0; i < slot_cnt; i++) {
-		if (!bitmap_test(&swap_slot, i))
-			bitmap_mark(&swap_slot, i);
-			return i;
+	if (page->frame) {
+		list_remove(&page->frame->frame_elem);
+		palloc_free_page(page->frame->kva);
+		free(page->frame);
+		page->frame = NULL;
 	}
-	return BITMAP_ERROR;
+
+	if (page->anon.slot_idx != BITMAP_ERROR) {
+		bitmap_reset(swap_slot, page->anon.slot_idx);
+		page->anon.slot_idx = BITMAP_ERROR;
+	}
 }

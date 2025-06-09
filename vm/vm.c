@@ -5,6 +5,9 @@
 #include "vm/vm.h"
 #include "vm/inspect.h"
 
+struct list frame_table;
+static struct list_elem *clock_ptr = NULL;
+
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
 void
@@ -18,7 +21,6 @@ vm_init (void) {
 	/* DO NOT MODIFY UPPER LINES. */
 	/* TODO: Your code goes here. */
 	list_init(&frame_table);
-	lock_init(&frame_table_lock);
 }
 
 /* Get the type of the page. This function is useful if you want to know the
@@ -141,32 +143,22 @@ spt_remove_page (struct supplemental_page_table *spt, struct page *page) {
 /* Get the struct frame, that will be evicted. */
 static struct frame *
 vm_get_victim (void) {
-	struct frame *victim = NULL;
-	 /* TODO: The policy for eviction is up to you. */
-    // struct supplemental_page_table *spt = &thread_current()->spt;
-    // struct hash_iterator i;
-    // hash_first(&i, &spt->spt_hash);
-    // while (hash_next(&i)) {
-    //     struct page *p = hash_entry(hash_cur(&i), struct page, hash_elem);
-    //     if (p->frame != NULL && p->frame->page != NULL) {
-	// 		return p->frame;
-    //     }
-    // }
-    // return NULL;
+	if (list_empty(&frame_table)) return NULL;
+	if (!clock_ptr || clock_ptr == list_end(&frame_table))
+		clock_ptr = list_begin(&frame_table);
 
-	lock_acquire(&frame_table_lock);
-	struct list_elem *e = list_begin(&frame_table);
-	while (e != list_end(&frame_table)) {
-		struct frame *f = list_entry(e, struct frame, elem);
-		if (f->page != NULL) {
-			// list_remove(e);
-			lock_release(&frame_table_lock);
-			return f;
+	while (true) {
+		struct frame *frame = list_entry(clock_ptr, struct frame, frame_elem);
+		struct page *page = frame->page;
+		if (!pml4_is_accessed(thread_current()->pml4, page->va))
+			return frame;
+		else {
+			pml4_set_accessed(thread_current()->pml4, page->va, false);
+			clock_ptr = list_next(clock_ptr);
+			if (clock_ptr == list_end(&frame_table))
+				clock_ptr = list_begin(&frame_table);
 		}
-		e = list_next(e);
 	}
-	lock_release(&frame_table_lock);
-	return victim;
 }
 
 /* Evict one page and return the corresponding frame.
@@ -174,12 +166,13 @@ vm_get_victim (void) {
 static struct frame *
 vm_evict_frame (void) {
 	struct frame *victim = vm_get_victim();
-	/* TODO: swap out the victim and return the evicted frame. */
-	if (victim == NULL || !swap_out(victim->page))
+	if (!victim || !swap_out(victim->page))
 		return NULL;
-	lock_acquire(&frame_table_lock);
-	list_remove(&victim->elem);
-	lock_release(&frame_table_lock);
+
+	pml4_clear_page(thread_current()->pml4, victim->page->va);
+	list_remove(&victim->frame_elem);
+	victim->page->frame = NULL;
+	victim->page = NULL;
 	return victim;
 }
 
@@ -193,22 +186,19 @@ vm_get_frame (void) {
 	/* TODO: Fill this function. */
 	void *kva = palloc_get_page(PAL_USER | PAL_ZERO);
     if (kva == NULL) {
+		// 메모리 부족 → evict 필요
 		struct frame *victim = vm_evict_frame();
 		if (victim == NULL)
-			return NULL;
+			PANIC("No frame to evict!");
 		kva = victim->kva;
-		if (victim->page != NULL)
-			victim->page->frame = NULL;
-		free(victim);
+		free(victim);  // 회수한 frame 구조체 메모리 해제
 	}
-	
+
 	frame = (struct frame *)malloc(sizeof(struct frame));
 	frame->kva = kva;
 	frame->page = NULL;
 
-	lock_acquire(&frame_table_lock);
-	list_push_back(&frame_table, &frame->elem);
-	lock_release(&frame_table_lock);
+	list_push_back(&frame_table, &frame->frame_elem);  // frame table 등록
 
 	ASSERT (frame != NULL);
 	ASSERT (frame->page == NULL);

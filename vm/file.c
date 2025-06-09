@@ -38,19 +38,18 @@ file_backed_initializer (struct page *page, enum vm_type type, void *kva) {
 /* Swap in the page by read contents from the file. */
 static bool
 file_backed_swap_in (struct page *page, void *kva) {
-	struct file_page *file_page = &page->file;
-	lock_acquire(&filesys_lock);
-	int read_bytes = file_read_at(file_page->file, page->frame->kva, file_page->read_bytes, file_page->ofs);
-	lock_release(&filesys_lock);
-	memset(page->frame->kva + read_bytes, 0, PGSIZE - read_bytes);
-	return true;
+	struct file_page *file_page UNUSED = &page->file;
+	size_t read_bytes = file_page->read_bytes;
+    if (file_read_at(file_page->file, kva, read_bytes, file_page->ofs) != read_bytes)
+        return false;
+    memset(kva + read_bytes, 0, PGSIZE - read_bytes);
+    return true;
 }
 
 /* Swap out the page by writeback contents to the file. */
 static bool
 file_backed_swap_out (struct page *page) {
-	struct file_page *file_page = &page->file;
-	struct frame *frame = page->frame;
+	struct file_page *file_page UNUSED = &page->file;
 	if (pml4_is_dirty(thread_current()->pml4, page->va)) {
 		file_write_at(file_page->file, page->frame->kva, file_page->read_bytes, file_page->ofs);
 		pml4_set_dirty(thread_current()->pml4, page->va, false);
@@ -59,34 +58,27 @@ file_backed_swap_out (struct page *page) {
 	// page->frame = NULL;
 	pml4_clear_page(thread_current()->pml4, page->va);
 
-	lock_acquire(&frame_table_lock);
-	list_remove(&page->frame->elem);
-	lock_release(&frame_table_lock);
-
+	list_remove(&page->frame->frame_elem); // frame_table에서 제거
 	palloc_free_page(page->frame->kva);
 	free(page->frame);
+	page->frame = NULL;
 	return true;
 }
 
 /* Destory the file backed page. PAGE will be freed by the caller. */
 static void
 file_backed_destroy (struct page *page) {
-	struct file_page *file_page = &page->file;
+	struct file_page *file_page UNUSED = &page->file;
+    if (pml4_is_dirty(thread_current()->pml4, page->va)) {
+        file_write_at(file_page->file, page->frame->kva, file_page->read_bytes, file_page->ofs);
+        pml4_set_dirty(thread_current()->pml4, page->va, false);
+    }
+    pml4_clear_page(thread_current()->pml4, page->va);
+
 	if (page->frame != NULL) {
-		if (pml4_is_dirty(thread_current()->pml4, page->va)) {
-			file_write_at(file_page->file, page->frame->kva, file_page->read_bytes, file_page->ofs);
-			pml4_set_dirty(thread_current()->pml4, page->va, false);
-		}
-		pml4_clear_page(thread_current()->pml4, page->va);
-
-		lock_acquire(&frame_table_lock);
-		list_remove(&page->frame->elem);
-		lock_release(&frame_table_lock);
-
+		list_remove(&page->frame->frame_elem);  // frame table에서 제거
 		palloc_free_page(page->frame->kva);
 		free(page->frame);
-
-		page->frame = NULL;
 	}
 }
 
