@@ -3,12 +3,28 @@
 #include "vm/vm.h"
 #include "threads/vaddr.h"
 #include "devices/disk.h"
+#include "threads/vaddr.h"
 
 /* DO NOT MODIFY BELOW LINE */
 static struct disk *swap_disk;
 static bool anon_swap_in (struct page *page, void *kva);
 static bool anon_swap_out (struct page *page);
 static void anon_destroy (struct page *page);
+static size_t get_free_swap_slot (void);
+
+#define SECTOR_PER_SLOT (PGSIZE / DISK_SECTOR_SIZE)
+struct bitmap *swap_slot;
+/* The swap table tracks in-use and free swap slots. It should allow picking
+ * an unused swap slot for evicting a page from its frame to the swap partition.
+ * It should allow freeing a swap slot when its page is read back or the process
+ * whose page was swapped is terminated. Swap slots should be allocated lazily, 
+ * that is, only when they are actually required by eviction. 
+ * Reading data pages from the executable and writing them to swap immediately at 
+ * process startup is not lazy. Swap slots should not be reserved to store particular pages.
+ * Free a swap slot when its contents are read back into a frame. */
+
+#define SECTOR_PER_SLOT (PGSIZE / DISK_SECTOR_SIZE)
+struct bitmap *swap_slot;
 
 extern struct list frame_table;
 
@@ -28,8 +44,8 @@ void
 vm_anon_init (void) {
 	/* TODO: Set up the swap_disk. */
 	swap_disk = disk_get(1, 1);
-    size_t swap_slot_cnt = disk_size(swap_disk) / SWAP_SLOTS_CNT;
-    swap_slot = bitmap_create(swap_slot_cnt);
+	size_t swap_slot_cnt = disk_size(swap_disk) / SWAP_SLOTS_CNT;
+	swap_slot = bitmap_create(swap_slot_cnt);
 	ASSERT(swap_slot != NULL);
 }
 
@@ -41,7 +57,7 @@ anon_initializer (struct page *page, enum vm_type type, void *kva) {
 
 	struct anon_page *anon_page = &page->anon;
 	anon_page->slot_idx = BITMAP_ERROR;
-    return true;
+	return true;
 }
 
 /* Swap in the page by read contents from the swap disk. */

@@ -3,6 +3,7 @@
 #include "vm/vm.h"
 #include "userprog/process.h"
 #include "threads/vaddr.h"
+#include "userprog/syscall.h"
 #include "threads/mmu.h"
 
 #define MIN(x, y) ((x) < (y) ? (x) : (y))
@@ -103,23 +104,22 @@ do_mmap (void *addr, size_t length, int writable, struct file *file, off_t offse
         size_t page_read_bytes = MIN(read_bytes, PGSIZE);
         size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
-		/* TODO: Set up aux to pass information to the lazy_load_segment. */
         struct lazy_load_args *aux = (struct lazy_load_args *)malloc(sizeof(struct lazy_load_args));
         aux->file = file_;
         aux->ofs = offset;
         aux->read_bytes = page_read_bytes;
         aux->zero_bytes = page_zero_bytes;
 
-        if (!vm_alloc_page_with_initializer(VM_FILE, addr, writable, lazy_load_segment, aux))
-            return NULL;
+        if (!vm_alloc_page_with_initializer(VM_FILE, addr, writable, lazy_load_segment, aux)) {
+			free(aux);
+			return NULL;
+		}
 
-		/* Advance. */
         read_bytes -= page_read_bytes;
         zero_bytes -= page_zero_bytes;
         addr += PGSIZE;
         offset += page_read_bytes;
     }
-
     return ret;
 }
 
