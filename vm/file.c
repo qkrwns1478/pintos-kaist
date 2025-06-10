@@ -92,6 +92,10 @@ void *
 do_mmap (void *addr, size_t length, int writable, struct file *file, off_t offset) {
 	lock_acquire(&filesys_lock);
 	struct file *file_ = file_reopen(file);
+	if (file == NULL) {
+		lock_release(&filesys_lock);
+		return NULL;
+	}
 	size_t read_bytes = MIN(length, file_length(file_) - offset);
 	size_t zero_bytes = pg_round_up(length) - read_bytes;
 

@@ -2,6 +2,7 @@
 #include <hash.h>
 #include "threads/malloc.h"
 #include "threads/mmu.h"
+#include "userprog/process.h"
 #include "vm/vm.h"
 #include "vm/inspect.h"
 
@@ -333,9 +334,23 @@ supplemental_page_table_copy (struct supplemental_page_table *dst, struct supple
         void *va = src_page->va;
         bool writable = src_page->writable;
         if (type == VM_UNINIT) {
-            vm_alloc_page_with_initializer(src_page->uninit.type, va, writable, src_page->uninit.init, src_page->uninit.aux);
+            // vm_alloc_page_with_initializer(src_page->uninit.type, va, writable, src_page->uninit.init, src_page->uninit.aux);
+			if (!vm_alloc_page_with_initializer(VM_ANON, va, writable, src_page->uninit.init, src_page->uninit.aux))
+                return false;
             continue;
-        } else if (!vm_alloc_page_with_initializer(type, va, writable, NULL, NULL) || !vm_claim_page(va))
+		} else if (type == VM_FILE) {
+			struct lazy_load_args *lla = (struct lazy_load_args *)malloc(sizeof(struct lazy_load_args));
+			lla->file = src_page->file.file;
+			lla->ofs = src_page->file.ofs;
+			lla->read_bytes = src_page->file.read_bytes;
+			if (!vm_alloc_page_with_initializer(type, va, writable, NULL, lla))
+				return false;
+			struct page *file_page = spt_find_page(dst, va);
+			file_backed_initializer(file_page, type, NULL);
+			pml4_set_page(thread_current()->pml4, file_page->va, src_page->frame->kva, src_page->writable);
+			continue;
+		}
+		if (!vm_alloc_page_with_initializer(type, va, writable, NULL, NULL) || !vm_claim_page(va))
             return false;
         struct page *dst_page = spt_find_page(dst, va);
         memcpy(dst_page->frame->kva, src_page->frame->kva, PGSIZE);
