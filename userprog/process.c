@@ -353,15 +353,15 @@ process_exit (void) {
 	/* Close all file and deallocate the FDT */
 	for (int fd = 2; fd < FILED_MAX; fd++) {
 		if (curr->fdt[fd] != NULL) {
-			lock_acquire(&filesys_lock);
+			// lock_acquire(&filesys_lock);
 			file_close(curr->fdt[fd]);
-			lock_release(&filesys_lock);
+			// lock_release(&filesys_lock);
 			curr->fdt[fd] = NULL;
 		}
 	}
-	lock_acquire(&filesys_lock);
+	// lock_acquire(&filesys_lock);
 	file_close(curr->running_file);
-	lock_release(&filesys_lock);
+	// lock_release(&filesys_lock);
 	// curr->running_file = NULL;
 
 	if (curr->child_info != NULL) {
@@ -588,6 +588,7 @@ load (const char *file_name, struct intr_frame *if_) {
 done:
 	/* We arrive here whether the load is successful or not. */
 	// file_close (file);
+	// lock_release(&filesys_lock);
 	return success;
 }
 
@@ -791,6 +792,8 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage, uint32_t read_bytes,
 
 		/* TODO: Set up aux to pass information to the lazy_load_segment. */
 		struct lazy_load_args *aux = (struct lazy_load_args *)malloc(sizeof(struct lazy_load_args));
+		if (aux == NULL)
+			return false;
 		aux->file = file;
 		aux->ofs = ofs;
 		aux->read_bytes = page_read_bytes;

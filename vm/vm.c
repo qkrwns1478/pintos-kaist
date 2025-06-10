@@ -160,9 +160,8 @@ vm_get_victim (void) {
 			break;
 		} else {
 			pml4_set_accessed(thread_current()->pml4, page->va, false);
-			fte = list_next(fte);
-			if (fte == list_end(&frame_table))
-				fte = list_begin(&frame_table);
+			if (fte == list_end(&frame_table)) fte = list_begin(&frame_table);
+			else fte = list_next(fte);
 		}
 	}
 
@@ -180,18 +179,14 @@ vm_evict_frame (void) {
 
 	struct page *page = victim->page;
 
-	// swap out
 	if (!swap_out(page))
 		return NULL;
 
-	// unmap VA to PA
 	pml4_clear_page(thread_current()->pml4, page->va);
 
-	// 연결 해제
 	victim->page = NULL;
 	page->frame = NULL;
 
-	// frame table에서 제거
 	list_remove(&victim->frame_elem);
 
 	return victim;

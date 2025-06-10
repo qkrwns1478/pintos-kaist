@@ -11,8 +11,6 @@ static bool anon_swap_out (struct page *page);
 static void anon_destroy (struct page *page);
 static size_t get_free_swap_slot (void);
 
-extern struct list frame_table;
-
 #define SWAP_SLOTS_CNT (PGSIZE / DISK_SECTOR_SIZE)
 struct bitmap *swap_slot;
 

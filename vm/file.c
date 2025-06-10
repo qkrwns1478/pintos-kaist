@@ -90,6 +90,7 @@ file_backed_destroy (struct page *page) {
 /* Do the mmap */
 void *
 do_mmap (void *addr, size_t length, int writable, struct file *file, off_t offset) {
+	lock_acquire(&filesys_lock);
 	struct file *file_ = file_reopen(file);
 	size_t read_bytes = MIN(length, file_length(file_) - offset);
 	size_t zero_bytes = pg_round_up(length) - read_bytes;
@@ -107,12 +108,17 @@ do_mmap (void *addr, size_t length, int writable, struct file *file, off_t offse
         size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
         struct lazy_load_args *aux = (struct lazy_load_args *)malloc(sizeof(struct lazy_load_args));
+		if (aux == NULL) {
+			lock_release(&filesys_lock);
+			return NULL;
+		}
         aux->file = file_;
         aux->ofs = offset;
         aux->read_bytes = page_read_bytes;
         aux->zero_bytes = page_zero_bytes;
 
         if (!vm_alloc_page_with_initializer(VM_FILE, addr, writable, lazy_load_segment, aux)) {
+			lock_release(&filesys_lock);
 			free(aux);
 			return NULL;
 		}
@@ -122,6 +128,7 @@ do_mmap (void *addr, size_t length, int writable, struct file *file, off_t offse
         addr += PGSIZE;
         offset += page_read_bytes;
     }
+	lock_release(&filesys_lock);
     return ret;
 }
 
@@ -131,6 +138,7 @@ do_munmap (void *addr) {
 	/* TODO: Remove mmaped page from mmap list of current thread */
 	struct thread *curr = thread_current();
 	struct page *page = spt_find_page(&curr->spt, addr);
+	lock_acquire(&filesys_lock);
     while (page != NULL) {
 		if (page_get_type(page) != VM_FILE)
 			return;
@@ -142,4 +150,5 @@ do_munmap (void *addr) {
 		addr += PGSIZE;
 		page = spt_find_page(&curr->spt, addr);
 	}
+	lock_release(&filesys_lock);
 }
