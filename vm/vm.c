@@ -5,10 +5,12 @@
 #include "userprog/process.h"
 #include "vm/vm.h"
 #include "vm/inspect.h"
+#include "threads/synch.h"
+#include "list.h"
 
 struct list frame_table;
 struct list_elem *fte;
-static struct lock frame_table_lock;
+struct lock hash_lock;
 
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
@@ -23,7 +25,6 @@ vm_init (void) {
 	/* DO NOT MODIFY UPPER LINES. */
 	/* TODO: Your code goes here. */
 	list_init(&frame_table);
-	lock_init(&frame_table_lock);
 	lock_init(&hash_lock);
 }
 
@@ -149,13 +150,10 @@ spt_remove_page (struct supplemental_page_table *spt, struct page *page) {
 /* Get the struct frame, that will be evicted. */
 static struct frame *
 vm_get_victim (void) {
-	// lock_acquire(&frame_table_lock);
 	struct frame *victim = NULL;
 	 /* TODO: The policy for eviction is up to you. */
-	if (list_empty(&frame_table)) {
-		// lock_release(&frame_table_lock);
+	if (list_empty(&frame_table))
 		return NULL;
-	}
 
 	if (fte == NULL || fte == list_end(&frame_table))
 		fte = list_begin(&frame_table);
@@ -173,7 +171,6 @@ vm_get_victim (void) {
 			else fte = list_next(fte);
 		}
 	}
-	// lock_release(&frame_table_lock);
 	return victim;
 }
 
@@ -181,7 +178,6 @@ vm_get_victim (void) {
  * Return NULL on error.*/
 static struct frame *
 vm_evict_frame (void) {
-	lock_acquire(&frame_table_lock);
 	struct frame *victim UNUSED = vm_get_victim ();
 	/* TODO: swap out the victim and return the evicted frame. */
 	if (victim == NULL)
@@ -198,11 +194,9 @@ vm_evict_frame (void) {
 	page->frame = NULL;
 
 	list_remove(&victim->frame_elem);
-	lock_release(&frame_table_lock);
 
 	return victim;
 err:
-	lock_release(&frame_table_lock);
 	return NULL;
 }
 
@@ -229,9 +223,7 @@ vm_get_frame (void) {
 	frame->kva = kva;
 	frame->page = NULL;
 
-	lock_acquire(&frame_table_lock);
 	list_push_back(&frame_table, &frame->frame_elem);  // frame table 등록
-	lock_release(&frame_table_lock);
 
 	ASSERT (frame != NULL);
 	ASSERT (frame->page == NULL);
@@ -352,8 +344,7 @@ supplemental_page_table_copy (struct supplemental_page_table *dst, struct supple
         void *va = src_page->va;
         bool writable = src_page->writable;
         if (type == VM_UNINIT) {
-            // vm_alloc_page_with_initializer(src_page->uninit.type, va, writable, src_page->uninit.init, src_page->uninit.aux);
-			if (!vm_alloc_page_with_initializer(VM_ANON, va, writable, src_page->uninit.init, src_page->uninit.aux))
+			if (!vm_alloc_page_with_initializer(src_page->uninit.type, va, writable, src_page->uninit.init, src_page->uninit.aux))
                 return false;
             continue;
 		} else if (type == VM_FILE) {

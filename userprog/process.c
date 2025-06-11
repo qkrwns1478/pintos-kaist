@@ -828,14 +828,12 @@ setup_stack (struct intr_frame *if_) {
 	 * TODO: If success, set the rsp accordingly.
 	 * TODO: You should mark the page is stack. */
 	/* TODO: Your code goes here */
-	/* The first stack page need not be allocated lazily.
-	 * You can allocate and initialize it with the command line arguments at load time, with no need to wait for it to be faulted in.
-	 * You might need to provide the way to identify the stack.
-	 * You can use the auxillary markers in vm_type of vm/vm.h (e.g. VM_MARKER_0) to mark the page. */
 	if(vm_alloc_page_with_initializer(VM_ANON | VM_MARKER_0, stack_bottom, true, NULL, NULL)) {
 		success = vm_claim_page(stack_bottom);
-		if (success)
+		if (success) {
 			if_->rsp = USER_STACK;
+			thread_current()->stack_pointer = stack_bottom;
+		}
 	}
 	return success;
 }

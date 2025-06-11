@@ -146,16 +146,15 @@ page_fault (struct intr_frame *f) {
 
 #ifdef VM
 	/* For project 3 and later. */
+	if((!not_present && write) || fault_addr < 0x400000)
+		exit(-1);
 	if (vm_try_handle_fault (f, fault_addr, user, write, not_present))
 		return;
-	else {
-		page_fault_cnt++;
-		exit(-1);
-	}
 #endif
 
 	/* Count page faults. */
 	page_fault_cnt++;
+	exit(-1);
 
 	/* If the fault is true fault, show info and exit. */
 	// printf ("Page fault at %p: %s error %s page in %s context.\n",

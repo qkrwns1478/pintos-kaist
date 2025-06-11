@@ -29,7 +29,6 @@
 struct hash_elem {
 	struct list_elem list_elem;
 };
-extern struct lock hash_lock;
 
 /* Converts pointer to hash element HASH_ELEM into a pointer to
  * the structure that HASH_ELEM is embedded inside.  Supply the

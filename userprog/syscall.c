@@ -320,7 +320,7 @@ bool check_address(const void *addr) {
 bool check_buffer(void *buffer, size_t size, bool writable) {
     for (size_t i = 0; i < size; i += 8) {
         struct page *page = spt_find_page(&thread_current()->spt, buffer + i);
-        if (!page || (writable && !(page->writable)))
+        if (page == NULL || (writable && !page->writable))
             return false;
     }
 	return true;

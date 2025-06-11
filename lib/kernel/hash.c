@@ -14,7 +14,6 @@ static struct list *find_bucket (struct hash *, struct hash_elem *);
 static struct hash_elem *find_elem (struct hash *, struct list *,
 		struct hash_elem *);
 static void remove_elem (struct hash *, struct hash_elem *);
-struct lock hash_lock;
 
 /* Initializes hash table H to compute hash values using HASH and
    compare hash elements using LESS, given auxiliary data AUX. */
