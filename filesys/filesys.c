@@ -12,7 +12,6 @@
 /* The disk that contains the file system. */
 struct disk *filesys_disk;
 struct lock filesys_lock;
-struct lock filesys_lock_2;
 
 static void do_format (void);
 
@@ -26,7 +25,6 @@ filesys_init (bool format) {
 
 	inode_init ();
 	lock_init(&filesys_lock);
-	lock_init(&filesys_lock_2);
 
 #ifdef EFILESYS
 	fat_init ();

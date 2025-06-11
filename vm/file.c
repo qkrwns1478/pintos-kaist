@@ -78,12 +78,10 @@ file_backed_destroy (struct page *page) {
 	struct file_page *file_page UNUSED = &page->file;
 	if (file_page->file == NULL)
 		return;
-	lock_acquire(&filesys_lock_2);
     if (pml4_is_dirty(thread_current()->pml4, page->va)) {
         file_write_at(file_page->file, page->frame->kva, file_page->read_bytes, file_page->ofs);
         pml4_set_dirty(thread_current()->pml4, page->va, false);
     }
-	lock_release(&filesys_lock_2);
     pml4_clear_page(thread_current()->pml4, page->va);
 	if (page->frame != NULL) {
 		list_remove(&page->frame->frame_elem);

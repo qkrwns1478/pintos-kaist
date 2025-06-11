@@ -501,9 +501,8 @@ load (const char *file_name, struct intr_frame *if_) {
 	process_activate (thread_current ());
 
 	/* Open executable file. */
-	// lock_acquire(&filesys_lock);
+	lock_acquire(&filesys_lock);
 	file = filesys_open (file_name);
-	// lock_release(&filesys_lock);
 	if (file == NULL) {
 		printf ("load: %s: open failed\n", file_name);
 		goto done;
@@ -591,7 +590,7 @@ load (const char *file_name, struct intr_frame *if_) {
 done:
 	/* We arrive here whether the load is successful or not. */
 	// file_close (file);
-	// lock_release(&filesys_lock);
+	lock_release(&filesys_lock);
 	return success;
 }
 
@@ -750,15 +749,11 @@ lazy_load_segment (struct page *page, void *aux) {
 	 * TODO: VA is available when calling this function. */
 	struct lazy_load_args *lla = (struct lazy_load_args *) aux;
 	/* READ_BYTES bytes at UPAGE must be read from FILE starting at offset OFS. */
-	lock_acquire(&filesys_lock_2);
 	off_t segment = file_read_at(lla->file, page->frame->kva, lla->read_bytes, lla->ofs);
-	if (segment != lla->read_bytes) {
-		lock_release(&filesys_lock_2);
+	if (segment != lla->read_bytes)
 		return false;
-	}
 	/* ZERO_BYTES bytes at UPAGE + READ_BYTES must be zeroed. */
 	memset(page->frame->kva + lla->read_bytes, 0, lla->zero_bytes);
-	lock_release(&filesys_lock_2);
 
 	if (page_get_type(page) == VM_FILE) {
 		page->file.file = lla->file;
