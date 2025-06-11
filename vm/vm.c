@@ -361,6 +361,7 @@ supplemental_page_table_copy (struct supplemental_page_table *dst, struct supple
 			lla->file = src_page->file.file;
 			lla->ofs = src_page->file.ofs;
 			lla->read_bytes = src_page->file.read_bytes;
+			lla->zero_bytes = src_page->file.zero_bytes;
 			if (!vm_alloc_page_with_initializer(type, va, writable, NULL, lla))
 				return false;
 			struct page *file_page = spt_find_page(dst, va);

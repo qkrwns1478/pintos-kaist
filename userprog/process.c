@@ -764,6 +764,7 @@ lazy_load_segment (struct page *page, void *aux) {
 		page->file.file = lla->file;
 		page->file.ofs = lla->ofs;
 		page->file.read_bytes= lla->read_bytes;
+		page->file.zero_bytes = lla->zero_bytes;
 		list_push_back(&thread_current()->mmap_pages, &page->file.elem);
 	}
 	return true;

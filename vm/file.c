@@ -43,7 +43,7 @@ file_backed_swap_in (struct page *page, void *kva) {
 	struct file *file = file_page->file;
     off_t ofs = file_page->ofs;
     size_t read_bytes = file_page->read_bytes;
-    size_t zero_bytes = PGSIZE - read_bytes;
+    size_t zero_bytes = file_page->zero_bytes;
     if (file_read_at(file, kva, read_bytes, ofs) != read_bytes) {
 		lock_release(&filesys_lock);
 		return false;
