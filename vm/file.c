@@ -3,8 +3,8 @@
 #include "vm/vm.h"
 #include "userprog/process.h"
 #include "threads/vaddr.h"
-#include "userprog/syscall.h"
 #include "threads/mmu.h"
+#include "filesys/filesys.h"
 
 #define MIN(x, y) ((x) < (y) ? (x) : (y))
 
@@ -39,14 +39,16 @@ file_backed_initializer (struct page *page, enum vm_type type, void *kva) {
 static bool
 file_backed_swap_in (struct page *page, void *kva) {
 	struct file_page *file_page UNUSED = &page->file;
-
+	lock_acquire(&filesys_lock);
 	struct file *file = file_page->file;
     off_t ofs = file_page->ofs;
     size_t read_bytes = file_page->read_bytes;
     size_t zero_bytes = PGSIZE - read_bytes;
-
-    if (file_read_at(file, kva, read_bytes, ofs) != read_bytes)
-        return false;
+    if (file_read_at(file, kva, read_bytes, ofs) != read_bytes) {
+		lock_release(&filesys_lock);
+		return false;
+	}
+	lock_release(&filesys_lock);
     memset(kva + read_bytes, 0, zero_bytes);
     return true;
 }
@@ -57,9 +59,11 @@ file_backed_swap_out (struct page *page) {
 	struct file_page *file_page UNUSED = &page->file;
 
 	if (pml4_is_dirty(thread_current()->pml4,page->va)){
+		lock_acquire(&filesys_lock);
 		file_write_at(file_page->file, page->frame->kva, file_page->read_bytes, file_page->ofs);
 		pml4_set_dirty(thread_current()->pml4, page->va, false);
-	} 
+		lock_release(&filesys_lock);
+	}
 	pml4_clear_page(thread_current()->pml4, page->va);
 	list_remove(&page->frame->frame_elem);
 	// palloc_free_page(page->frame->kva);
@@ -74,10 +78,12 @@ file_backed_destroy (struct page *page) {
 	struct file_page *file_page UNUSED = &page->file;
 	if (file_page->file == NULL)
 		return;
+	lock_acquire(&filesys_lock_2);
     if (pml4_is_dirty(thread_current()->pml4, page->va)) {
         file_write_at(file_page->file, page->frame->kva, file_page->read_bytes, file_page->ofs);
         pml4_set_dirty(thread_current()->pml4, page->va, false);
     }
+	lock_release(&filesys_lock_2);
     pml4_clear_page(thread_current()->pml4, page->va);
 	if (page->frame != NULL) {
 		list_remove(&page->frame->frame_elem);

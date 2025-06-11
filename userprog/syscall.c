@@ -45,7 +45,7 @@ syscall_init (void) {
 	 * mode stack. Therefore, we masked the FLAG_FL. */
 	write_msr(MSR_SYSCALL_MASK,
 			FLAG_IF | FLAG_TF | FLAG_DF | FLAG_IOPL | FLAG_AC | FLAG_NT);
-	lock_init(&filesys_lock);
+	// lock_init(&filesys_lock);
 }
 
 /* The main system call interface */
@@ -167,6 +167,7 @@ int open (const char *filename) {
 	if (!check_address(filename)) exit(-1);
 	lock_acquire(&filesys_lock);
 	struct file *file = filesys_open(filename);
+	// lock_release(&filesys_lock);
 	if (file == NULL) goto err; // Return -1 if file is not opened
 
 	int fd;

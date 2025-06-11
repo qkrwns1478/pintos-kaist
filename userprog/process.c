@@ -205,7 +205,9 @@ __do_fork (void *aux) {
 	/* Copy file descripters from parent to newly created process */
 	for (int i = 2; i < FILED_MAX; i++) {
 		if (parent->fdt[i] != NULL) {
+			lock_acquire(&filesys_lock);
 			struct file *dup = file_duplicate(parent->fdt[i]);
+			lock_release(&filesys_lock);
 			if (dup == NULL) goto error;
 			current->fdt[i] = dup;
 		}
@@ -359,10 +361,11 @@ process_exit (void) {
 			curr->fdt[fd] = NULL;
 		}
 	}
-	// lock_acquire(&filesys_lock);
-	file_close(curr->running_file);
-	// lock_release(&filesys_lock);
-	// curr->running_file = NULL;
+	if (curr->running_file != NULL) {
+		// lock_acquire(&filesys_lock);
+		file_close(curr->running_file);
+		// lock_release(&filesys_lock);
+	}
 
 	if (curr->child_info != NULL) {
 		curr->child_info->exit_status = curr->exit_status;
@@ -588,6 +591,7 @@ load (const char *file_name, struct intr_frame *if_) {
 done:
 	/* We arrive here whether the load is successful or not. */
 	// file_close (file);
+	// lock_release(&filesys_lock);
 	return success;
 }
 
@@ -746,12 +750,15 @@ lazy_load_segment (struct page *page, void *aux) {
 	 * TODO: VA is available when calling this function. */
 	struct lazy_load_args *lla = (struct lazy_load_args *) aux;
 	/* READ_BYTES bytes at UPAGE must be read from FILE starting at offset OFS. */
+	lock_acquire(&filesys_lock_2);
 	off_t segment = file_read_at(lla->file, page->frame->kva, lla->read_bytes, lla->ofs);
 	if (segment != lla->read_bytes) {
+		lock_release(&filesys_lock_2);
 		return false;
 	}
 	/* ZERO_BYTES bytes at UPAGE + READ_BYTES must be zeroed. */
 	memset(page->frame->kva + lla->read_bytes, 0, lla->zero_bytes);
+	lock_release(&filesys_lock_2);
 
 	if (page_get_type(page) == VM_FILE) {
 		page->file.file = lla->file;
