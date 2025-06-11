@@ -2,8 +2,14 @@
 #include <hash.h>
 #include "threads/malloc.h"
 #include "threads/mmu.h"
+#include "userprog/process.h"
 #include "vm/vm.h"
 #include "vm/inspect.h"
+#include "threads/synch.h"
+#include "list.h"
+
+struct list frame_table;
+struct list_elem *fte;
 
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
@@ -17,6 +23,7 @@ vm_init (void) {
 	register_inspect_intr ();
 	/* DO NOT MODIFY UPPER LINES. */
 	/* TODO: Your code goes here. */
+	list_init(&frame_table);
 }
 
 /* Get the type of the page. This function is useful if you want to know the
@@ -141,7 +148,25 @@ static struct frame *
 vm_get_victim (void) {
 	struct frame *victim = NULL;
 	 /* TODO: The policy for eviction is up to you. */
+	if (list_empty(&frame_table))
+		return NULL;
 
+	if (fte == NULL || fte == list_end(&frame_table))
+		fte = list_begin(&frame_table);
+
+	while (true) {
+		struct frame *frame = list_entry(fte, struct frame, frame_elem);
+		struct page *page = frame->page;
+
+		if (!pml4_is_accessed(thread_current()->pml4, page->va)) {
+			victim = frame;
+			break;
+		} else {
+			pml4_set_accessed(thread_current()->pml4, page->va, false);
+			if (fte == list_end(&frame_table)) fte = list_begin(&frame_table);
+			else fte = list_next(fte);
+		}
+	}
 	return victim;
 }
 
@@ -151,7 +176,23 @@ static struct frame *
 vm_evict_frame (void) {
 	struct frame *victim UNUSED = vm_get_victim ();
 	/* TODO: swap out the victim and return the evicted frame. */
+	if (victim == NULL)
+		goto err;
 
+	struct page *page = victim->page;
+
+	if (!swap_out(page))
+		goto err;
+
+	pml4_clear_page(thread_current()->pml4, page->va);
+
+	victim->page = NULL;
+	page->frame = NULL;
+
+	list_remove(&victim->frame_elem);
+
+	return victim;
+err:
 	return NULL;
 }
 
@@ -164,12 +205,21 @@ vm_get_frame (void) {
 	struct frame *frame = NULL;
 	/* TODO: Fill this function. */
 	void *kva = palloc_get_page(PAL_USER | PAL_ZERO);
-    if (kva == NULL)
-        PANIC("todo");
+    if (kva == NULL) {
+        // 메모리 부족 → evict 필요
+		struct frame *victim = vm_evict_frame();
+		if (victim == NULL)
+			PANIC("No frame to evict!");
+
+		kva = victim->kva;
+		free(victim);  // 회수한 frame 구조체 메모리 해제
+	}
 	
 	frame = (struct frame *)malloc(sizeof(struct frame));
 	frame->kva = kva;
 	frame->page = NULL;
+
+	list_push_back(&frame_table, &frame->frame_elem);  // frame table 등록
 
 	ASSERT (frame != NULL);
 	ASSERT (frame->page == NULL);
@@ -218,7 +268,8 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED, bool user U
     if (page == NULL) {
 		/* If you have confirmed that the fault can be handled with a stack growth,
 		 * call vm_stack_growth with the faulted address. */
-		if (f->rsp - PGSIZE < addr && addr < USER_STACK && f->rsp - PGSIZE >= STACK_LIMIT) {
+		void *rsp = thread_current()->stack_pointer;
+		if (rsp - PGSIZE < addr && addr < USER_STACK && rsp - PGSIZE >= STACK_LIMIT) {
 			if (!vm_stack_growth(addr))
 				return false;
 			page = spt_find_page(spt, addr);
@@ -286,9 +337,23 @@ supplemental_page_table_copy (struct supplemental_page_table *dst, struct supple
         void *va = src_page->va;
         bool writable = src_page->writable;
         if (type == VM_UNINIT) {
-            vm_alloc_page_with_initializer(src_page->uninit.type, va, writable, src_page->uninit.init, src_page->uninit.aux);
+			if (!vm_alloc_page_with_initializer(src_page->uninit.type, va, writable, src_page->uninit.init, src_page->uninit.aux))
+                return false;
             continue;
-        } else if (!vm_alloc_page_with_initializer(type, va, writable, NULL, NULL) || !vm_claim_page(va))
+		} else if (type == VM_FILE) {
+			struct lazy_load_args *lla = (struct lazy_load_args *)malloc(sizeof(struct lazy_load_args));
+			lla->file = src_page->file.file;
+			lla->ofs = src_page->file.ofs;
+			lla->read_bytes = src_page->file.read_bytes;
+			lla->zero_bytes = src_page->file.zero_bytes;
+			if (!vm_alloc_page_with_initializer(type, va, writable, NULL, lla))
+				return false;
+			struct page *file_page = spt_find_page(dst, va);
+			file_backed_initializer(file_page, type, NULL);
+			pml4_set_page(thread_current()->pml4, file_page->va, src_page->frame->kva, src_page->writable);
+			continue;
+		}
+		if (!vm_alloc_page_with_initializer(type, va, writable, NULL, NULL) || !vm_claim_page(va))
             return false;
         struct page *dst_page = spt_find_page(dst, va);
         memcpy(dst_page->frame->kva, src_page->frame->kva, PGSIZE);

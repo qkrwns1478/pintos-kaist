@@ -19,6 +19,7 @@
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
 bool check_address (const void *addr);
+bool check_buffer (void *buffer, size_t size, bool writable);
 
 /* System call.
  *
@@ -44,15 +45,13 @@ syscall_init (void) {
 	 * mode stack. Therefore, we masked the FLAG_FL. */
 	write_msr(MSR_SYSCALL_MASK,
 			FLAG_IF | FLAG_TF | FLAG_DF | FLAG_IOPL | FLAG_AC | FLAG_NT);
-	lock_init(&filesys_lock);
+	// lock_init(&filesys_lock);
 }
 
 /* The main system call interface */
 void
 syscall_handler (struct intr_frame *f UNUSED) {
-// #ifdef VM
-//     thread_current()->stack_pointer = f->rsp;
-// #endif
+    thread_current()->stack_pointer = f->rsp;
 	switch(f->R.rax) {
 		case SYS_HALT:                   /* Halt the operating system. */
 			halt();
@@ -166,24 +165,27 @@ bool remove (const char *file) {
 /* Open the file corresponds to path in "file". */
 int open (const char *filename) {
 	if (!check_address(filename)) exit(-1);
-	struct thread *curr = thread_current();
+	lock_acquire(&filesys_lock);
+	struct file *file = filesys_open(filename);
+	// lock_release(&filesys_lock);
+	if (file == NULL) goto err; // Return -1 if file is not opened
+
 	int fd;
 	bool is_not_full = false;
 	for(fd = 2; fd < FILED_MAX; fd++) {
-		if (curr->fdt[fd] == NULL) {
+		if (thread_current()->fdt[fd] == NULL) {
 			is_not_full = true;
 			break;
 		}
 	}
-	if (!is_not_full) return -1; // Return -1 if fdt is full
+	if (!is_not_full) goto err; // Return -1 if fdt is full
 
-	lock_acquire(&filesys_lock);
-	struct file *file = filesys_open(filename);
+	thread_current()->fdt[fd] = file;
 	lock_release(&filesys_lock);
-	if (file == NULL) return -1; // Return -1 if file is not opened
-
-	curr->fdt[fd] = file;
 	return fd;
+err:
+	lock_release(&filesys_lock);
+	return -1;
 }
 
 /* Return the size, in bytes, of the file open as fd. */
@@ -191,22 +193,17 @@ int filesize (int fd) {
 	if (fd < 2 || fd >= FILED_MAX) exit(-1); // invalid fd
 	struct file *file = thread_current()->fdt[fd];
 	if (file == NULL) exit(-1);
-
-	lock_acquire(&filesys_lock);
 	off_t res = file_length(file);
-	lock_release(&filesys_lock);
 	return res;
 }
 
 /* Read size bytes from the file open as fd into buffer. */
 int read (int fd, void *buffer, unsigned size) {
 	if (size == 0) return 0;
-	if (!check_address(buffer)) exit(-1);
 #ifdef VM
-    struct page *page = spt_find_page(&thread_current()->spt, buffer);
-    if (page != NULL && !page->writable)
-        exit(-1);
+    if (!check_buffer(buffer, size, true)) exit(-1);
 #endif
+	if (!check_address(buffer)) exit(-1);
 	if (fd == 0) { // fd0 is stdin
 		char *buf = (char *) buffer;
 		for (int i = 0; i < size; i++) {
@@ -228,6 +225,9 @@ int read (int fd, void *buffer, unsigned size) {
 
 /* Writes size bytes from buffer to the open file fd. */
 int write(int fd, const void *buffer, unsigned size) {
+#ifdef VM
+    if (!check_buffer(buffer, size, false)) exit(-1);
+#endif
 	if (!check_address(buffer)) exit(-1);
 	if(fd == 1) { // fd1 is stdout
 		putbuf(buffer, size);
@@ -253,9 +253,7 @@ void seek (int fd, unsigned position) {
 	struct thread *curr = thread_current();
 	struct file *file = curr->fdt[fd];
 	if (file == NULL) exit(-1);
-	lock_acquire(&filesys_lock);
 	file_seek(file, position);
-	lock_release(&filesys_lock);
 }
 
 /* Return the position of the next byte to be read or written in open file fd. */
@@ -264,9 +262,7 @@ unsigned tell (int fd) {
 	struct thread *curr = thread_current();
 	struct file *file = curr->fdt[fd];
 	if (file == NULL) exit(-1); // file not found
-	lock_acquire(&filesys_lock);
 	off_t res =  file_tell(file);
-	lock_release(&filesys_lock);
 	return res;
 }
 
@@ -289,14 +285,13 @@ void close (int fd) {
 
 /* Load file data into memory. */
 void *mmap (void *addr, size_t length, int writable, int fd, off_t offset) {
-	if (length == 0 || pg_round_down(addr) != addr || pg_round_down(offset) != offset || addr == 0 || fd == 0 || fd == 1)
+	if (length <= 0 || pg_round_down(addr) != addr || pg_round_down(offset) != offset || addr == 0 || fd == 0 || fd == 1)
+		return NULL;
+	if (!is_user_vaddr(addr) || !is_user_vaddr(addr + length) || spt_find_page(&thread_current()->spt, addr) != NULL)
 		return NULL;
 	struct file *file = thread_current()->fdt[fd];
 	if (file == NULL) return NULL;
-	lock_acquire(&filesys_lock);
-	off_t len = file_length(file);
-	lock_release(&filesys_lock);
-	if (len == 0) return NULL;
+	if (file_length(file) == 0) return NULL;
 	return do_mmap(addr, length, writable, file, offset);
 }
 
@@ -319,5 +314,14 @@ bool check_address(const void *addr) {
 #endif
 	if (page == NULL)
 		return false;
+	return true;
+}
+
+bool check_buffer(void *buffer, size_t size, bool writable) {
+    for (size_t i = 0; i < size; i += 8) {
+        struct page *page = spt_find_page(&thread_current()->spt, buffer + i);
+        if (page == NULL || (writable && !page->writable))
+            return false;
+    }
 	return true;
 }

@@ -465,10 +465,6 @@ init_thread (struct thread *t, const char *name, int priority) {
 
 	t->running_file = NULL;
 #endif
-
-#ifdef VM
-	list_init(&t->mmap_pages);
-#endif
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should
@@ -736,7 +732,7 @@ thread_refresh_priority (void) {
 	if (!list_empty(&curr->donations)) {
 		list_sort(&curr->donations, cmp_priority_donate, NULL);
 		struct thread *front = list_entry(list_front(&curr->donations), struct thread, d_elem);
-		if (front->priority > thread_get_priority())
+		if (curr->priority < front->priority)
 			curr->priority = front->priority;
 	}
 }
