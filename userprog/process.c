@@ -205,7 +205,9 @@ __do_fork (void *aux) {
 	/* Copy file descripters from parent to newly created process */
 	for (int i = 2; i < FILED_MAX; i++) {
 		if (parent->fdt[i] != NULL) {
+			lock_acquire(&filesys_lock);
 			struct file *dup = file_duplicate(parent->fdt[i]);
+			lock_release(&filesys_lock);
 			if (dup == NULL) goto error;
 			current->fdt[i] = dup;
 		}
@@ -353,32 +355,23 @@ process_exit (void) {
 	/* Close all file and deallocate the FDT */
 	for (int fd = 2; fd < FILED_MAX; fd++) {
 		if (curr->fdt[fd] != NULL) {
-			lock_acquire(&filesys_lock);
+			// lock_acquire(&filesys_lock);
 			file_close(curr->fdt[fd]);
-			lock_release(&filesys_lock);
+			// lock_release(&filesys_lock);
 			curr->fdt[fd] = NULL;
 		}
 	}
-	lock_acquire(&filesys_lock);
-	file_close(curr->running_file);
-	lock_release(&filesys_lock);
-	// curr->running_file = NULL;
+	if (curr->running_file != NULL) {
+		// lock_acquire(&filesys_lock);
+		file_close(curr->running_file);
+		// lock_release(&filesys_lock);
+	}
 
 	if (curr->child_info != NULL) {
 		curr->child_info->exit_status = curr->exit_status;
 		curr->child_info->is_exit = true;
 		sema_up(&curr->child_info->c_sema);
 	}
-
-#ifdef VM
-	struct list_elem *e = list_begin(&curr->mmap_pages);
-	while (e != list_end(&curr->mmap_pages)) {
-		struct file_page *fp = list_entry(e, struct file_page, elem);
-		e = list_next(e);
-		do_munmap(&fp->va);
-	}
-#endif
-
 	process_cleanup ();
 }
 
@@ -498,9 +491,8 @@ load (const char *file_name, struct intr_frame *if_) {
 	process_activate (thread_current ());
 
 	/* Open executable file. */
-	// lock_acquire(&filesys_lock);
+	lock_acquire(&filesys_lock);
 	file = filesys_open (file_name);
-	// lock_release(&filesys_lock);
 	if (file == NULL) {
 		printf ("load: %s: open failed\n", file_name);
 		goto done;
@@ -588,6 +580,7 @@ load (const char *file_name, struct intr_frame *if_) {
 done:
 	/* We arrive here whether the load is successful or not. */
 	// file_close (file);
+	lock_release(&filesys_lock);
 	return success;
 }
 
@@ -747,9 +740,8 @@ lazy_load_segment (struct page *page, void *aux) {
 	struct lazy_load_args *lla = (struct lazy_load_args *) aux;
 	/* READ_BYTES bytes at UPAGE must be read from FILE starting at offset OFS. */
 	off_t segment = file_read_at(lla->file, page->frame->kva, lla->read_bytes, lla->ofs);
-	if (segment != lla->read_bytes) {
+	if (segment != lla->read_bytes)
 		return false;
-	}
 	/* ZERO_BYTES bytes at UPAGE + READ_BYTES must be zeroed. */
 	memset(page->frame->kva + lla->read_bytes, 0, lla->zero_bytes);
 
@@ -757,7 +749,7 @@ lazy_load_segment (struct page *page, void *aux) {
 		page->file.file = lla->file;
 		page->file.ofs = lla->ofs;
 		page->file.read_bytes= lla->read_bytes;
-		list_push_back(&thread_current()->mmap_pages, &page->file.elem);
+		page->file.zero_bytes = lla->zero_bytes;
 	}
 	return true;
 }
@@ -791,6 +783,8 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage, uint32_t read_bytes,
 
 		/* TODO: Set up aux to pass information to the lazy_load_segment. */
 		struct lazy_load_args *aux = (struct lazy_load_args *)malloc(sizeof(struct lazy_load_args));
+		if (aux == NULL)
+			return false;
 		aux->file = file;
 		aux->ofs = ofs;
 		aux->read_bytes = page_read_bytes;
@@ -818,14 +812,12 @@ setup_stack (struct intr_frame *if_) {
 	 * TODO: If success, set the rsp accordingly.
 	 * TODO: You should mark the page is stack. */
 	/* TODO: Your code goes here */
-	/* The first stack page need not be allocated lazily.
-	 * You can allocate and initialize it with the command line arguments at load time, with no need to wait for it to be faulted in.
-	 * You might need to provide the way to identify the stack.
-	 * You can use the auxillary markers in vm_type of vm/vm.h (e.g. VM_MARKER_0) to mark the page. */
 	if(vm_alloc_page_with_initializer(VM_ANON | VM_MARKER_0, stack_bottom, true, NULL, NULL)) {
 		success = vm_claim_page(stack_bottom);
-		if (success)
+		if (success) {
 			if_->rsp = USER_STACK;
+			thread_current()->stack_pointer = stack_bottom;
+		}
 	}
 	return success;
 }

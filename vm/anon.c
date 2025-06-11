@@ -11,10 +11,9 @@ static bool anon_swap_out (struct page *page);
 static void anon_destroy (struct page *page);
 static size_t get_free_swap_slot (void);
 
-extern struct list frame_table;
-
 #define SWAP_SLOTS_CNT (PGSIZE / DISK_SECTOR_SIZE)
 struct bitmap *swap_slot;
+static struct lock swap_lock;
 
 /* DO NOT MODIFY this struct */
 static const struct page_operations anon_ops = {
@@ -31,6 +30,7 @@ vm_anon_init (void) {
 	swap_disk = disk_get(1, 1);
 	size_t swap_slot_cnt = disk_size(swap_disk) / SWAP_SLOTS_CNT;
 	swap_slot = bitmap_create(swap_slot_cnt);
+	lock_init(&swap_lock);
 	ASSERT(swap_slot != NULL);
 }
 
@@ -55,11 +55,13 @@ anon_swap_in (struct page *page, void *kva) {
         memset(kva, 0, PGSIZE);
         return true;
 	}
+	lock_acquire(&swap_lock);
     for (int i = 0; i < SWAP_SLOTS_CNT; i++) {
         disk_read(swap_disk, slot_idx * SWAP_SLOTS_CNT + i, kva + i * DISK_SECTOR_SIZE);
     }
     bitmap_reset(swap_slot, slot_idx);
 	anon_page->slot_idx = BITMAP_ERROR;
+	lock_release(&swap_lock);
     return true;
 }
 
@@ -67,11 +69,14 @@ anon_swap_in (struct page *page, void *kva) {
 static bool
 anon_swap_out (struct page *page) {
 	struct anon_page *anon_page = &page->anon;
+	lock_acquire(&swap_lock);
 	size_t slot_idx = bitmap_scan(swap_slot, 0, 1, false);
-	if (slot_idx == BITMAP_ERROR)
-        return false;
+	if (slot_idx == BITMAP_ERROR) {
+		lock_release(&swap_lock);
+		return false;
+	}
 	bitmap_mark(swap_slot, slot_idx);
-
+	lock_release(&swap_lock);
     anon_page->slot_idx = slot_idx;
     for (int i = 0; i < SWAP_SLOTS_CNT; i++) {
         disk_write(swap_disk, slot_idx * SWAP_SLOTS_CNT + i, page->frame->kva + i * DISK_SECTOR_SIZE);
@@ -86,8 +91,10 @@ anon_swap_out (struct page *page) {
 static void
 anon_destroy (struct page *page) {
 	struct anon_page *anon_page = &page->anon;
-	// if (anon_page->slot_idx != BITMAP_ERROR) {
-	// 	bitmap_reset(swap_slot, anon_page->slot_idx);
-	// 	anon_page->slot_idx = BITMAP_ERROR;
-	// }
+	if (anon_page->slot_idx != BITMAP_ERROR) {
+		lock_acquire(&swap_lock);
+		bitmap_reset(swap_slot, anon_page->slot_idx);
+		lock_release(&swap_lock);
+		anon_page->slot_idx = BITMAP_ERROR;
+	}
 }

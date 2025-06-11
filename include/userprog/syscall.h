@@ -4,7 +4,7 @@
 #include <stdbool.h>
 #include "threads/interrupt.h"
 typedef int pid_t;
-struct lock filesys_lock;
+// struct lock filesys_lock;
 
 void syscall_init (void);
 

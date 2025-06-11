@@ -2,8 +2,11 @@
 #include <hash.h>
 #include "threads/malloc.h"
 #include "threads/mmu.h"
+#include "userprog/process.h"
 #include "vm/vm.h"
 #include "vm/inspect.h"
+#include "threads/synch.h"
+#include "list.h"
 
 struct list frame_table;
 struct list_elem *fte;
@@ -160,12 +163,10 @@ vm_get_victim (void) {
 			break;
 		} else {
 			pml4_set_accessed(thread_current()->pml4, page->va, false);
-			fte = list_next(fte);
-			if (fte == list_end(&frame_table))
-				fte = list_begin(&frame_table);
+			if (fte == list_end(&frame_table)) fte = list_begin(&frame_table);
+			else fte = list_next(fte);
 		}
 	}
-
 	return victim;
 }
 
@@ -176,25 +177,23 @@ vm_evict_frame (void) {
 	struct frame *victim UNUSED = vm_get_victim ();
 	/* TODO: swap out the victim and return the evicted frame. */
 	if (victim == NULL)
-		return NULL;
+		goto err;
 
 	struct page *page = victim->page;
 
-	// swap out
 	if (!swap_out(page))
-		return NULL;
+		goto err;
 
-	// unmap VA to PA
 	pml4_clear_page(thread_current()->pml4, page->va);
 
-	// 연결 해제
 	victim->page = NULL;
 	page->frame = NULL;
 
-	// frame table에서 제거
 	list_remove(&victim->frame_elem);
 
 	return victim;
+err:
+	return NULL;
 }
 
 /* palloc() and get frame. If there is no available page, evict the page
@@ -338,9 +337,23 @@ supplemental_page_table_copy (struct supplemental_page_table *dst, struct supple
         void *va = src_page->va;
         bool writable = src_page->writable;
         if (type == VM_UNINIT) {
-            vm_alloc_page_with_initializer(src_page->uninit.type, va, writable, src_page->uninit.init, src_page->uninit.aux);
+			if (!vm_alloc_page_with_initializer(src_page->uninit.type, va, writable, src_page->uninit.init, src_page->uninit.aux))
+                return false;
             continue;
-        } else if (!vm_alloc_page_with_initializer(type, va, writable, NULL, NULL) || !vm_claim_page(va))
+		} else if (type == VM_FILE) {
+			struct lazy_load_args *lla = (struct lazy_load_args *)malloc(sizeof(struct lazy_load_args));
+			lla->file = src_page->file.file;
+			lla->ofs = src_page->file.ofs;
+			lla->read_bytes = src_page->file.read_bytes;
+			lla->zero_bytes = src_page->file.zero_bytes;
+			if (!vm_alloc_page_with_initializer(type, va, writable, NULL, lla))
+				return false;
+			struct page *file_page = spt_find_page(dst, va);
+			file_backed_initializer(file_page, type, NULL);
+			pml4_set_page(thread_current()->pml4, file_page->va, src_page->frame->kva, src_page->writable);
+			continue;
+		}
+		if (!vm_alloc_page_with_initializer(type, va, writable, NULL, NULL) || !vm_claim_page(va))
             return false;
         struct page *dst_page = spt_find_page(dst, va);
         memcpy(dst_page->frame->kva, src_page->frame->kva, PGSIZE);

@@ -202,7 +202,8 @@ lock_acquire (struct lock *lock) {
 		/* If necessary, you may impose a reasonable limit on
 		   depth of nested priority donation, such as 8 levels. */
 		for (int i = 0; i < 8; i++) {
-			if (!t->wait_on_lock)
+			// Project 3에서 child가 먼저 삭제되면 holder가 NULL이 되는 경우가 발생함
+			if (t->wait_on_lock == NULL || t->wait_on_lock->holder == NULL)
 				break;
 			struct thread *h = t->wait_on_lock->holder;
 			h->priority = t->priority;
@@ -255,8 +256,10 @@ lock_release (struct lock *lock) {
 		struct list_elem *e = list_begin(&curr->donations);
 		while (e != list_end(&curr->donations)) {
 			struct thread *t = list_entry(e, struct thread, d_elem);
-			if (t->wait_on_lock == lock) e = list_remove(e);
-			else e = list_next(e);
+			if (t->wait_on_lock == lock)
+				e = list_remove(&t->d_elem);
+			else
+				e = list_next(e);
 		}
 		// Set priority of the current thread
 		thread_refresh_priority();
