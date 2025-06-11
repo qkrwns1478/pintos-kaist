@@ -113,16 +113,6 @@ process_fork (const char *name, struct intr_frame *if_) {
 	if (child->fork_fail)
 		return TID_ERROR;
 	return tid;
-
-	// struct list_elem *e;
-	// for (e = list_begin(&curr->children); e != list_end(&curr->children); e = list_next(e)) {
-	// 	struct child *ch = list_entry(e, struct child, c_elem);
-	// 	if (ch->tid == tid) {
-	// 		sema_down(&ch->c_sema);
-	// 		break;
-	// 	}
-	// }
-	// return tid;
 }
 
 #ifndef VM
@@ -181,15 +171,6 @@ __do_fork (void *aux) {
 	current->child_info = fa->child_info;
 	current->child_info->tid = current->tid;
 
-	// struct list_elem *e;
-	// for (e = list_begin(&parent->children); e != list_end(&parent->children); e = list_next(e)) {
-	// 	struct child *ch = list_entry(e, struct child, c_elem);
-	// 	if (ch->tid == current->tid) {
-	// 		current->child_info = ch;
-	// 		break;
-	// 	}
-	// }
-
 	struct intr_frame *parent_if = fa->pf;
 	bool succ = true;
 
@@ -224,7 +205,9 @@ __do_fork (void *aux) {
 	/* Copy file descripters from parent to newly created process */
 	for (int i = 2; i < FILED_MAX; i++) {
 		if (parent->fdt[i] != NULL) {
+			lock_acquire(&filesys_lock);
 			struct file *dup = file_duplicate(parent->fdt[i]);
+			lock_release(&filesys_lock);
 			if (dup == NULL) goto error;
 			current->fdt[i] = dup;
 		}
@@ -372,37 +355,23 @@ process_exit (void) {
 	/* Close all file and deallocate the FDT */
 	for (int fd = 2; fd < FILED_MAX; fd++) {
 		if (curr->fdt[fd] != NULL) {
-			lock_acquire(&filesys_lock);
+			// lock_acquire(&filesys_lock);
 			file_close(curr->fdt[fd]);
-			lock_release(&filesys_lock);
+			// lock_release(&filesys_lock);
 			curr->fdt[fd] = NULL;
 		}
 	}
-	lock_acquire(&filesys_lock);
-	file_close(curr->running_file);
-	lock_release(&filesys_lock);
-	// curr->running_file = NULL;
+	if (curr->running_file != NULL) {
+		// lock_acquire(&filesys_lock);
+		file_close(curr->running_file);
+		// lock_release(&filesys_lock);
+	}
 
 	if (curr->child_info != NULL) {
 		curr->child_info->exit_status = curr->exit_status;
 		curr->child_info->is_exit = true;
 		sema_up(&curr->child_info->c_sema);
 	}
-	
-	// struct thread *parent = curr->parent;
-	// if (parent != NULL) {
-	// 	struct list_elem *e;
-	// 	for (e = list_begin(&parent->children); e != list_end(&parent->children); e = list_next(e)) {
-	// 		struct child *child = list_entry(e, struct child, c_elem);
-	// 		if (child->tid == curr->tid) {
-	// 			child->exit_status = curr->exit_status;
-	// 			child->is_exit = true;
-	// 			sema_up(&child->c_sema);
-	// 			break;
-	// 		}
-	// 	}
-	// }
-
 	process_cleanup ();
 }
 
@@ -500,8 +469,7 @@ struct ELF64_PHDR {
 static bool setup_stack (struct intr_frame *if_);
 static bool validate_segment (const struct Phdr *, struct file *);
 static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
-		uint32_t read_bytes, uint32_t zero_bytes,
-		bool writable);
+		uint32_t read_bytes, uint32_t zero_bytes, bool writable);
 
 /* Loads an ELF executable from FILE_NAME into the current thread.
  * Stores the executable's entry point into *RIP
@@ -523,6 +491,7 @@ load (const char *file_name, struct intr_frame *if_) {
 	process_activate (thread_current ());
 
 	/* Open executable file. */
+	lock_acquire(&filesys_lock);
 	file = filesys_open (file_name);
 	if (file == NULL) {
 		printf ("load: %s: open failed\n", file_name);
@@ -611,6 +580,7 @@ load (const char *file_name, struct intr_frame *if_) {
 done:
 	/* We arrive here whether the load is successful or not. */
 	// file_close (file);
+	lock_release(&filesys_lock);
 	return success;
 }
 
@@ -762,11 +732,26 @@ install_page (void *upage, void *kpage, bool writable) {
  * If you want to implement the function for only project 2, implement it on the
  * upper block. */
 
-static bool
+bool
 lazy_load_segment (struct page *page, void *aux) {
-	/* TODO: Load the segment from the file */
-	/* TODO: This called when the first page fault occurs on address VA. */
-	/* TODO: VA is available when calling this function. */
+	/* TODO: Load the segment from the file
+	 * TODO: This called when the first page fault occurs on address VA.
+	 * TODO: VA is available when calling this function. */
+	struct lazy_load_args *lla = (struct lazy_load_args *) aux;
+	/* READ_BYTES bytes at UPAGE must be read from FILE starting at offset OFS. */
+	off_t segment = file_read_at(lla->file, page->frame->kva, lla->read_bytes, lla->ofs);
+	if (segment != lla->read_bytes)
+		return false;
+	/* ZERO_BYTES bytes at UPAGE + READ_BYTES must be zeroed. */
+	memset(page->frame->kva + lla->read_bytes, 0, lla->zero_bytes);
+
+	if (page_get_type(page) == VM_FILE) {
+		page->file.file = lla->file;
+		page->file.ofs = lla->ofs;
+		page->file.read_bytes= lla->read_bytes;
+		page->file.zero_bytes = lla->zero_bytes;
+	}
+	return true;
 }
 
 /* Loads a segment starting at offset OFS in FILE at address
@@ -784,8 +769,7 @@ lazy_load_segment (struct page *page, void *aux) {
  * Return true if successful, false if a memory allocation error
  * or disk read error occurs. */
 static bool
-load_segment (struct file *file, off_t ofs, uint8_t *upage,
-		uint32_t read_bytes, uint32_t zero_bytes, bool writable) {
+load_segment (struct file *file, off_t ofs, uint8_t *upage, uint32_t read_bytes, uint32_t zero_bytes, bool writable) {
 	ASSERT ((read_bytes + zero_bytes) % PGSIZE == 0);
 	ASSERT (pg_ofs (upage) == 0);
 	ASSERT (ofs % PGSIZE == 0);
@@ -798,15 +782,22 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
 		/* TODO: Set up aux to pass information to the lazy_load_segment. */
-		void *aux = NULL;
-		if (!vm_alloc_page_with_initializer (VM_ANON, upage,
-					writable, lazy_load_segment, aux))
+		struct lazy_load_args *aux = (struct lazy_load_args *)malloc(sizeof(struct lazy_load_args));
+		if (aux == NULL)
+			return false;
+		aux->file = file;
+		aux->ofs = ofs;
+		aux->read_bytes = page_read_bytes;
+		aux->zero_bytes = page_zero_bytes;
+		
+		if (!vm_alloc_page_with_initializer (VM_ANON, upage, writable, lazy_load_segment, aux))
 			return false;
 
 		/* Advance. */
 		read_bytes -= page_read_bytes;
 		zero_bytes -= page_zero_bytes;
 		upage += PGSIZE;
+		ofs += page_read_bytes;
 	}
 	return true;
 }
@@ -821,7 +812,13 @@ setup_stack (struct intr_frame *if_) {
 	 * TODO: If success, set the rsp accordingly.
 	 * TODO: You should mark the page is stack. */
 	/* TODO: Your code goes here */
-
+	if(vm_alloc_page_with_initializer(VM_ANON | VM_MARKER_0, stack_bottom, true, NULL, NULL)) {
+		success = vm_claim_page(stack_bottom);
+		if (success) {
+			if_->rsp = USER_STACK;
+			thread_current()->stack_pointer = stack_bottom;
+		}
+	}
 	return success;
 }
 #endif /* VM */

@@ -8,16 +8,12 @@
 #include "hash.h"
 #include "../debug.h"
 #include "threads/malloc.h"
-
-#define list_elem_to_hash_elem(LIST_ELEM)                       \
-	list_entry(LIST_ELEM, struct hash_elem, list_elem)
+#include "threads/synch.h"
 
 static struct list *find_bucket (struct hash *, struct hash_elem *);
 static struct hash_elem *find_elem (struct hash *, struct list *,
 		struct hash_elem *);
-static void insert_elem (struct hash *, struct list *, struct hash_elem *);
 static void remove_elem (struct hash *, struct hash_elem *);
-static void rehash (struct hash *);
 
 /* Initializes hash table H to compute hash values using HASH and
    compare hash elements using LESS, given auxiliary data AUX. */
@@ -318,7 +314,7 @@ is_power_of_2 (size_t x) {
    ideal.  This function can fail because of an out-of-memory
    condition, but that'll just make hash accesses less efficient;
    we can still continue. */
-static void
+void
 rehash (struct hash *h) {
 	size_t old_bucket_cnt, new_bucket_cnt;
 	struct list *new_buckets, *old_buckets;
@@ -379,7 +375,7 @@ rehash (struct hash *h) {
 }
 
 /* Inserts E into BUCKET (in hash table H). */
-static void
+void
 insert_elem (struct hash *h, struct list *bucket, struct hash_elem *e) {
 	h->elem_cnt++;
 	list_push_front (bucket, &e->list_elem);

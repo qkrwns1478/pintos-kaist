@@ -12,10 +12,14 @@
 #include "filesys/filesys.h"
 #include "threads/vaddr.h"
 #include "threads/synch.h"
+#ifdef VM
+#include "vm/vm.h"
+#endif
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
-bool is_valid (const void *addr);
+bool check_address (const void *addr);
+bool check_buffer (void *buffer, size_t size, bool writable);
 
 /* System call.
  *
@@ -41,12 +45,13 @@ syscall_init (void) {
 	 * mode stack. Therefore, we masked the FLAG_FL. */
 	write_msr(MSR_SYSCALL_MASK,
 			FLAG_IF | FLAG_TF | FLAG_DF | FLAG_IOPL | FLAG_AC | FLAG_NT);
-	lock_init(&filesys_lock);
+	// lock_init(&filesys_lock);
 }
 
 /* The main system call interface */
 void
 syscall_handler (struct intr_frame *f UNUSED) {
+    thread_current()->stack_pointer = f->rsp;
 	switch(f->R.rax) {
 		case SYS_HALT:                   /* Halt the operating system. */
 			halt();
@@ -90,6 +95,14 @@ syscall_handler (struct intr_frame *f UNUSED) {
 		case SYS_CLOSE:                  /* Close a file. */
 			close(f->R.rdi);
 			break;
+#ifdef VM
+		case SYS_MMAP:					 /* Map a file into memory. */
+			f->R.rax = mmap(f->R.rdi, f->R.rsi, f->R.rdx, f->R.r10, f->R.r8);
+			break;
+		case SYS_MUNMAP:				 /* Remove a memory mapping. */
+			munmap(f->R.rdi);
+			break;
+#endif
 		default:
 			exit(f->R.rdi);
 	}
@@ -112,14 +125,13 @@ void exit(int status) {
 
 /* Create new process which is the clone of current process with the name THREAD_NAME. */
 pid_t fork (const char *thread_name, struct intr_frame *f) {
-	if (!is_valid(thread_name)) exit(-1);
+	if (!check_address(thread_name)) exit(-1);
 	return process_fork(thread_name, f);
 }
 
 /* Create child process and execute program corresponds to cmd_file on it. */
 int exec (const char *cmd_line) {
-	if (!is_valid(cmd_line)) exit(-1);
-	// if (process_exec(cmd_line) == -1) exit(-1);
+	if (!check_address(cmd_line)) exit(-1);
 	char *buf = palloc_get_page(PAL_ZERO);
 	if (buf == NULL) exit(-1);
 	strlcpy(buf, cmd_line, PGSIZE);
@@ -134,7 +146,7 @@ int wait (pid_t pid) {
 
 /* Create file which have size of initial_size. */
 bool create (const char *file, unsigned initial_size) {
-	if (!is_valid(file)) exit(-1);
+	if (!check_address(file)) exit(-1);
 	lock_acquire(&filesys_lock);
 	bool res = filesys_create(file, initial_size);
 	lock_release(&filesys_lock);
@@ -143,7 +155,7 @@ bool create (const char *file, unsigned initial_size) {
 
 /* Remove file whose name is file. */
 bool remove (const char *file) {
-	if (!is_valid(file)) exit(-1);
+	if (!check_address(file)) exit(-1);
 	lock_acquire(&filesys_lock);
 	bool res = filesys_remove(file);
 	lock_release(&filesys_lock);
@@ -152,43 +164,46 @@ bool remove (const char *file) {
 
 /* Open the file corresponds to path in "file". */
 int open (const char *filename) {
-	if (!is_valid(filename)) exit(-1);
-	struct thread *curr = thread_current();
+	if (!check_address(filename)) exit(-1);
+	lock_acquire(&filesys_lock);
+	struct file *file = filesys_open(filename);
+	// lock_release(&filesys_lock);
+	if (file == NULL) goto err; // Return -1 if file is not opened
+
 	int fd;
 	bool is_not_full = false;
 	for(fd = 2; fd < FILED_MAX; fd++) {
-		if (curr->fdt[fd] == NULL) {
+		if (thread_current()->fdt[fd] == NULL) {
 			is_not_full = true;
 			break;
 		}
 	}
-	if (!is_not_full) return -1; // Return -1 if fdt is full
+	if (!is_not_full) goto err; // Return -1 if fdt is full
 
-	lock_acquire(&filesys_lock);
-	struct file *file = filesys_open(filename);
+	thread_current()->fdt[fd] = file;
 	lock_release(&filesys_lock);
-	if (file == NULL) return -1; // Return -1 if file is not opened
-
-	curr->fdt[fd] = file;
 	return fd;
+err:
+	lock_release(&filesys_lock);
+	return -1;
 }
 
 /* Return the size, in bytes, of the file open as fd. */
 int filesize (int fd) {
-	if (fd < 2 || fd > 63) exit(-1); // invalid fd
+	if (fd < 2 || fd >= FILED_MAX) exit(-1); // invalid fd
 	struct file *file = thread_current()->fdt[fd];
 	if (file == NULL) exit(-1);
-
-	lock_acquire(&filesys_lock);
 	off_t res = file_length(file);
-	lock_release(&filesys_lock);
 	return res;
 }
 
 /* Read size bytes from the file open as fd into buffer. */
 int read (int fd, void *buffer, unsigned size) {
 	if (size == 0) return 0;
-	if (!is_valid(buffer)) exit(-1);
+#ifdef VM
+    if (!check_buffer(buffer, size, true)) exit(-1);
+#endif
+	if (!check_address(buffer)) exit(-1);
 	if (fd == 0) { // fd0 is stdin
 		char *buf = (char *) buffer;
 		for (int i = 0; i < size; i++) {
@@ -197,7 +212,7 @@ int read (int fd, void *buffer, unsigned size) {
 		return size;
 	}
 	else if (fd == 1) exit(-1); // fd1 is stdout (invalid)
-	else if (fd < 2 || fd > 63) exit(-1); // invalid fd
+	else if (fd < 2 || fd >= FILED_MAX) exit(-1); // invalid fd
 	else {
 		struct file *file = thread_current()->fdt[fd];
 		if (file == NULL) exit(-1);
@@ -210,12 +225,15 @@ int read (int fd, void *buffer, unsigned size) {
 
 /* Writes size bytes from buffer to the open file fd. */
 int write(int fd, const void *buffer, unsigned size) {
-	if (!is_valid(buffer)) exit(-1);
+#ifdef VM
+    if (!check_buffer(buffer, size, false)) exit(-1);
+#endif
+	if (!check_address(buffer)) exit(-1);
 	if(fd == 1) { // fd1 is stdout
 		putbuf(buffer, size);
 		return size;
 	} else if (fd == 0) exit(-1); // fd0 is stdin (invalid)
-	else if (fd < 2 || fd > 63) exit(-1); // invalid fd
+	else if (fd < 2 || fd >= FILED_MAX) exit(-1); // invalid fd
 	else {
 		struct thread *curr = thread_current();
 		struct file *file = curr->fdt[fd];
@@ -231,30 +249,26 @@ int write(int fd, const void *buffer, unsigned size) {
 
 /* Changes the next byte to be read or written in open file fd to position. */
 void seek (int fd, unsigned position) {
-	if (fd < 2 || fd > 63) exit(-1); // invalid fd
+	if (fd < 2 || fd >= FILED_MAX) exit(-1); // invalid fd
 	struct thread *curr = thread_current();
 	struct file *file = curr->fdt[fd];
 	if (file == NULL) exit(-1);
-	lock_acquire(&filesys_lock);
 	file_seek(file, position);
-	lock_release(&filesys_lock);
 }
 
 /* Return the position of the next byte to be read or written in open file fd. */
 unsigned tell (int fd) {
-	if (fd < 2 || fd > 63) exit(-1); // invalid fd
+	if (fd < 2 || fd >= FILED_MAX) exit(-1); // invalid fd
 	struct thread *curr = thread_current();
 	struct file *file = curr->fdt[fd];
 	if (file == NULL) exit(-1); // file not found
-	lock_acquire(&filesys_lock);
 	off_t res =  file_tell(file);
-	lock_release(&filesys_lock);
 	return res;
 }
 
 /* Close file descriptor fd. */
 void close (int fd) {
-	if (fd < 2 || fd > 63) exit(-1); // invalid fd
+	if (fd < 2 || fd >= FILED_MAX) exit(-1); // invalid fd
 	struct thread *curr = thread_current();
 	struct file *file = curr->fdt[fd];
 	if (file == NULL) exit(-1);
@@ -267,9 +281,47 @@ void close (int fd) {
 	lock_release(&filesys_lock);
 }
 
-bool is_valid(const void *addr) {
-	if (addr == NULL) return false;
-	if (!is_user_vaddr(addr)) return false;
-	if (pml4_get_page(thread_current()->pml4, addr) == NULL) return false;
+#ifdef VM
+
+/* Load file data into memory. */
+void *mmap (void *addr, size_t length, int writable, int fd, off_t offset) {
+	if (length <= 0 || pg_round_down(addr) != addr || pg_round_down(offset) != offset || addr == 0 || fd == 0 || fd == 1)
+		return NULL;
+	if (!is_user_vaddr(addr) || !is_user_vaddr(addr + length) || spt_find_page(&thread_current()->spt, addr) != NULL)
+		return NULL;
+	struct file *file = thread_current()->fdt[fd];
+	if (file == NULL) return NULL;
+	if (file_length(file) == 0) return NULL;
+	return do_mmap(addr, length, writable, file, offset);
+}
+
+/* Unmap the mappings which has not been previously unmapped. */
+void munmap (void *addr) {
+	if (pg_round_down(addr) != addr || addr == 0)
+		return;
+	do_munmap(addr);
+}
+
+#endif
+
+bool check_address(const void *addr) {
+	if (addr == NULL || !is_user_vaddr(addr)) 
+		return false;
+#ifndef VM
+	void *page = pml4_get_page(thread_current()->pml4, addr);
+#else
+	struct page *page = spt_find_page(&thread_current()->spt, addr);
+#endif
+	if (page == NULL)
+		return false;
+	return true;
+}
+
+bool check_buffer(void *buffer, size_t size, bool writable) {
+    for (size_t i = 0; i < size; i += 8) {
+        struct page *page = spt_find_page(&thread_current()->spt, buffer + i);
+        if (page == NULL || (writable && !page->writable))
+            return false;
+    }
 	return true;
 }
