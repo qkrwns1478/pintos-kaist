@@ -10,7 +10,6 @@
 
 struct list frame_table;
 struct list_elem *fte;
-struct lock hash_lock;
 
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
@@ -25,7 +24,6 @@ vm_init (void) {
 	/* DO NOT MODIFY UPPER LINES. */
 	/* TODO: Your code goes here. */
 	list_init(&frame_table);
-	lock_init(&hash_lock);
 }
 
 /* Get the type of the page. This function is useful if you want to know the
@@ -133,10 +131,8 @@ bool
 spt_insert_page (struct supplemental_page_table *spt UNUSED, struct page *page UNUSED) {
 	bool succ = false;
 	/* TODO: Fill this function. */
-	lock_acquire(&hash_lock);
 	if (hash_insert(&spt->spt_hash, &page->hash_elem) == NULL)
 		succ = true;
-	lock_release(&hash_lock);
 	return succ;
 }
 
@@ -277,11 +273,8 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED, bool user U
 			if (!vm_stack_growth(addr))
 				return false;
 			page = spt_find_page(spt, addr);
-		} else {
-			// printf("[vm_try_handle_fault] stack growth failed: %d %d %d\n", rsp - PGSIZE < addr, addr < USER_STACK, rsp - PGSIZE >= STACK_LIMIT);
-			// if (rsp - PGSIZE >= addr) printf("[vm_try_handle_fault] rsp = %p, addr = %p\n", rsp, addr);
+		} else
 			return false;
-		}
 	}
 	if (write && !page->writable)
 		return false;
@@ -373,9 +366,7 @@ void
 supplemental_page_table_kill (struct supplemental_page_table *spt UNUSED) {
 	/* TODO: Destroy all the supplemental_page_table hold by thread and
 	 * TODO: writeback all the modified contents to the storage. */
-	lock_acquire(&hash_lock);
 	hash_clear(&spt->spt_hash, spt_kill_destructor);
-	lock_release(&hash_lock);
 }
 
 static void spt_kill_destructor (struct hash_elem *h, void *aux UNUSED) {
