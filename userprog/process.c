@@ -372,16 +372,6 @@ process_exit (void) {
 		curr->child_info->is_exit = true;
 		sema_up(&curr->child_info->c_sema);
 	}
-
-#ifdef VM
-	struct list_elem *e = list_begin(&curr->mmap_pages);
-	while (e != list_end(&curr->mmap_pages)) {
-		struct file_page *fp = list_entry(e, struct file_page, elem);
-		e = list_next(e);
-		do_munmap(&fp->va);
-	}
-#endif
-
 	process_cleanup ();
 }
 
@@ -760,7 +750,6 @@ lazy_load_segment (struct page *page, void *aux) {
 		page->file.ofs = lla->ofs;
 		page->file.read_bytes= lla->read_bytes;
 		page->file.zero_bytes = lla->zero_bytes;
-		list_push_back(&thread_current()->mmap_pages, &page->file.elem);
 	}
 	return true;
 }

@@ -39,7 +39,7 @@ file_backed_initializer (struct page *page, enum vm_type type, void *kva) {
 static bool
 file_backed_swap_in (struct page *page, void *kva) {
 	struct file_page *file_page UNUSED = &page->file;
-	lock_acquire(&filesys_lock);
+	// lock_acquire(&filesys_lock);
 	struct file *file = file_page->file;
     off_t ofs = file_page->ofs;
     size_t read_bytes = file_page->read_bytes;
@@ -48,7 +48,7 @@ file_backed_swap_in (struct page *page, void *kva) {
 		lock_release(&filesys_lock);
 		return false;
 	}
-	lock_release(&filesys_lock);
+	// lock_release(&filesys_lock);
     memset(kva + read_bytes, 0, zero_bytes);
     return true;
 }
@@ -59,16 +59,18 @@ file_backed_swap_out (struct page *page) {
 	struct file_page *file_page UNUSED = &page->file;
 
 	if (pml4_is_dirty(thread_current()->pml4,page->va)){
-		lock_acquire(&filesys_lock);
+		// lock_acquire(&filesys_lock);
 		file_write_at(file_page->file, page->frame->kva, file_page->read_bytes, file_page->ofs);
 		pml4_set_dirty(thread_current()->pml4, page->va, false);
-		lock_release(&filesys_lock);
+		// lock_release(&filesys_lock);
 	}
+	page->frame->page = NULL;
+    page->frame = NULL;
 	pml4_clear_page(thread_current()->pml4, page->va);
-	list_remove(&page->frame->frame_elem);
-	// palloc_free_page(page->frame->kva);
-	// free(page->frame);
-	page->frame = NULL;
+	// list_remove(&page->frame->frame_elem);
+	// // palloc_free_page(page->frame->kva);
+	// // free(page->frame);
+	// page->frame = NULL;
 	return true;
 }
 
@@ -96,7 +98,7 @@ void *
 do_mmap (void *addr, size_t length, int writable, struct file *file, off_t offset) {
 	lock_acquire(&filesys_lock);
 	struct file *file_ = file_reopen(file);
-	if (file == NULL) {
+	if (file_ == NULL) {
 		lock_release(&filesys_lock);
 		return NULL;
 	}
@@ -145,18 +147,15 @@ void
 do_munmap (void *addr) {
 	/* TODO: Remove mmaped page from mmap list of current thread */
 	struct thread *curr = thread_current();
-	struct page *page = spt_find_page(&curr->spt, addr);
+	struct page *page;
 	lock_acquire(&filesys_lock);
-    while (page != NULL) {
-		if (page_get_type(page) != VM_FILE)
-			return;
+    while ((page = spt_find_page(&curr->spt, addr))) {
 		destroy(page);
 		page->file.file = NULL;
-		list_remove(&page->file.elem);
+		// list_remove(&page->file.elem);
 		// list_remove(&page->frame->frame_elem);
 		spt_remove_page(&curr->spt, page);
 		addr += PGSIZE;
-		page = spt_find_page(&curr->spt, addr);
 	}
 	lock_release(&filesys_lock);
 }

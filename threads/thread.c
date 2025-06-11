@@ -465,10 +465,6 @@ init_thread (struct thread *t, const char *name, int priority) {
 
 	t->running_file = NULL;
 #endif
-
-#ifdef VM
-	list_init(&t->mmap_pages);
-#endif
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should
